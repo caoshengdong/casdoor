@@ -25,6 +25,8 @@ import {CountDownInput} from "../common/CountDownInput";
 import SelectRegionBox from "../SelectRegionBox";
 import CustomGithubCorner from "../CustomGithubCorner";
 
+/* eslint-disable jsx-a11y/anchor-is-valid */
+
 const formItemLayout = {
   labelCol: {
     xs: {

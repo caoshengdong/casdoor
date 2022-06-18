@@ -6,6 +6,9 @@
     "Sign Up": "Sign Up"
   },
   "application": {
+    "Copy prompt page URL": "Copy prompt page URL",
+    "Copy signin page URL": "Copy signin page URL",
+    "Copy signup page URL": "Copy signup page URL",
     "Edit Application": "Edit Application",
     "Enable code signin": "Enable code signin",
     "Enable code signin - Tooltip": "Enable code signin - Tooltip",
@@ -19,21 +22,24 @@
     "Password ON": "Password ON",
     "Password ON - Tooltip": "Password ON - Tooltip",
     "Please select a HTML file": "Please select a HTML file",
+    "Prompt page URL copied to clipboard successfully, please paste it into the incognito window or another browser": "Prompt page URL copied to clipboard successfully, please paste it into the incognito window or another browser",
     "Redirect URL": "Redirect URL",
     "Redirect URLs": "Redirect URLs",
     "Redirect URLs - Tooltip": "Redirect URLs - Tooltip",
     "Refresh token expire": "Refresh token expire",
     "Refresh token expire - Tooltip": "Refresh token expire - Tooltip",
+    "SAML metadata": "SAML metadata",
+    "SAML metadata - Tooltip": "SAML metadata - Tooltip",
+    "Signin page URL copied to clipboard successfully, please paste it into the incognito window or another browser": "Signin page URL copied to clipboard successfully, please paste it into the incognito window or another browser",
     "Signin session": "Signin session",
     "Signup items": "Signup items",
     "Signup items - Tooltip": "Signup items - Tooltip",
-    "Test prompt page..": "Test prompt page..",
-    "Test signin page..": "Test signin page..",
-    "Test signup page..": "Test signup page..",
+    "Signup page URL copied to clipboard successfully, please paste it into the incognito window or another browser": "Signup page URL copied to clipboard successfully, please paste it into the incognito window or another browser",
     "Token expire": "Token expire",
     "Token expire - Tooltip": "Token expire - Tooltip",
     "Token format": "Token format",
-    "Token format - Tooltip": "Token format - Tooltip"
+    "Token format - Tooltip": "Token format - Tooltip",
+    "rule": "rule"
   },
   "cert": {
     "Bit size": "Bit size",
@@ -99,6 +105,7 @@
     "Cert": "Cert",
     "Cert - Tooltip": "Cert - Tooltip",
     "Certs": "Certs",
+    "Click to Upload": "Click to Upload",
     "Client IP": "Client IP",
     "Created time": "Created time",
     "Default avatar": "Default avatar",
@@ -131,6 +138,9 @@
     "Master password": "Master password",
     "Master password - Tooltip": "Master password - Tooltip",
     "Method": "Method",
+    "Model": "Model",
+    "Model - Tooltip": "Model - Tooltip",
+    "Models": "Models",
     "Name": "Name",
     "Name - Tooltip": "Name - Tooltip",
     "OAuth providers": "OAuth providers",
@@ -243,7 +253,15 @@
     "sign up now": "sign up now",
     "username, Email or phone": "username, Email or phone"
   },
+  "model": {
+    "Edit Model": "Edit Model",
+    "Model text": "Model text",
+    "Model text - Tooltip": "Model text - Tooltip",
+    "New Model": "New Model"
+  },
   "organization": {
+    "Account items": "Account items",
+    "Account items - Tooltip": "Account items - Tooltip",
     "Default avatar": "Default avatar",
     "Edit Organization": "Edit Organization",
     "Favicon": "Favicon",
@@ -255,7 +273,9 @@
     "Tags": "Tags",
     "Tags - Tooltip": "Tags - Tooltip",
     "Website URL": "Website URL",
-    "Website URL - Tooltip": "Website URL - Tooltip"
+    "Website URL - Tooltip": "Website URL - Tooltip",
+    "modifyRule": "modifyRule",
+    "viewRule": "viewRule"
   },
   "payment": {
     "Confirm your invoice information": "Confirm your invoice information",
@@ -425,6 +445,8 @@
     "Scope": "Scope",
     "Scope - Tooltip": "Scope - Tooltip",
     "Secret access key": "Secret access key",
+    "Secret key": "Secret key",
+    "Secret key - Tooltip": "Secret key - Tooltip",
     "SecretAccessKey - Tooltip": "SecretAccessKey - Tooltip",
     "Sign Name": "Sign Name",
     "Sign Name - Tooltip": "Sign Name - Tooltip",
@@ -436,6 +458,8 @@
     "Signup HTML": "Signup HTML",
     "Signup HTML - Edit": "Signup HTML - Edit",
     "Signup HTML - Tooltip": "Signup HTML - Tooltip",
+    "Site key": "Site key",
+    "Site key - Tooltip": "Site key - Tooltip",
     "Sub type": "Sub type",
     "Sub type - Tooltip": "Sub type - Tooltip",
     "Template Code": "Template Code",
@@ -454,7 +478,6 @@
     "canUnlink": "canUnlink",
     "prompted": "prompted",
     "required": "required",
-    "rule": "rule",
     "visible": "visible"
   },
   "record": {
@@ -483,6 +506,7 @@
   },
   "signup": {
     "Accept": "Accept",
+    "Agreement": "Agreement",
     "Confirm": "Confirm",
     "Decline": "Decline",
     "Have account?": "Have account?",
@@ -558,6 +582,8 @@
     "Bio": "Bio",
     "Bio - Tooltip": "Bio - Tooltip",
     "Cancel": "Cancel",
+    "Captcha Verify Failed": "Captcha Verify Failed",
+    "Captcha Verify Success": "Captcha Verify Success",
     "Code Sent": "Code Sent",
     "Country/Region": "Country/Region",
     "Country/Region - Tooltip": "Country/Region - Tooltip",

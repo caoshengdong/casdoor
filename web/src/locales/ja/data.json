@@ -6,6 +6,9 @@
     "Sign Up": "新規登録"
   },
   "application": {
+    "Copy prompt page URL": "Copy prompt page URL",
+    "Copy signin page URL": "Copy signin page URL",
+    "Copy signup page URL": "Copy signup page URL",
     "Edit Application": "アプリケーションを編集",
     "Enable code signin": "コードサインインを有効にする",
     "Enable code signin - Tooltip": "Enable code signin - Tooltip",
@@ -19,21 +22,24 @@
     "Password ON": "パスワードON",
     "Password ON - Tooltip": "Whether to allow password login",
     "Please select a HTML file": "HTMLファイルを選択してください",
+    "Prompt page URL copied to clipboard successfully, please paste it into the incognito window or another browser": "Prompt page URL copied to clipboard successfully, please paste it into the incognito window or another browser",
     "Redirect URL": "リダイレクトURL",
     "Redirect URLs": "リダイレクトURL",
     "Redirect URLs - Tooltip": "List of redirect addresses after successful login",
     "Refresh token expire": "トークンの更新の期限が切れます",
     "Refresh token expire - Tooltip": "トークンの有効期限を更新する - ツールチップ",
+    "SAML metadata": "SAML metadata",
+    "SAML metadata - Tooltip": "SAML metadata - Tooltip",
+    "Signin page URL copied to clipboard successfully, please paste it into the incognito window or another browser": "Signin page URL copied to clipboard successfully, please paste it into the incognito window or another browser",
     "Signin session": "サインインセッション",
     "Signup items": "アイテムの登録",
     "Signup items - Tooltip": "Signup items that need to be filled in when users register",
-    "Test prompt page..": "テストプロンプトページ...",
-    "Test signin page..": "サインインテストページ...",
-    "Test signup page..": "登録ページのテスト",
+    "Signup page URL copied to clipboard successfully, please paste it into the incognito window or another browser": "Signup page URL copied to clipboard successfully, please paste it into the incognito window or another browser",
     "Token expire": "トークンの有効期限",
     "Token expire - Tooltip": "トークンの有効期限 - ツールチップ",
     "Token format": "トークンのフォーマット",
-    "Token format - Tooltip": "トークンフォーマット - ツールチップ"
+    "Token format - Tooltip": "トークンフォーマット - ツールチップ",
+    "rule": "rule"
   },
   "cert": {
     "Bit size": "ビットサイズ",
@@ -99,6 +105,7 @@
     "Cert": "Cert",
     "Cert - Tooltip": "Cert - Tooltip",
     "Certs": "Certs",
+    "Click to Upload": "Click to Upload",
     "Client IP": "クライアント IP",
     "Created time": "作成日時",
     "Default avatar": "デフォルトのアバター",
@@ -131,6 +138,9 @@
     "Master password": "マスターパスワード",
     "Master password - Tooltip": "マスターパスワード - ツールチップ",
     "Method": "方法",
+    "Model": "Model",
+    "Model - Tooltip": "Model - Tooltip",
+    "Models": "Models",
     "Name": "名前",
     "Name - Tooltip": "Unique string-style identifier",
     "OAuth providers": "OAuthプロバイダー",
@@ -243,7 +253,15 @@
     "sign up now": "今すぐサインアップ",
     "username, Email or phone": "ユーザー名、メールアドレスまたは電話番号"
   },
+  "model": {
+    "Edit Model": "Edit Model",
+    "Model text": "Model text",
+    "Model text - Tooltip": "Model text - Tooltip",
+    "New Model": "New Model"
+  },
   "organization": {
+    "Account items": "Account items",
+    "Account items - Tooltip": "Account items - Tooltip",
     "Default avatar": "デフォルトのアバター",
     "Edit Organization": "組織を編集",
     "Favicon": "ファビコン",
@@ -255,7 +273,9 @@
     "Tags": "Tags",
     "Tags - Tooltip": "Tags - Tooltip",
     "Website URL": "Website URL",
-    "Website URL - Tooltip": "Unique string-style identifier"
+    "Website URL - Tooltip": "Unique string-style identifier",
+    "modifyRule": "modifyRule",
+    "viewRule": "viewRule"
   },
   "payment": {
     "Confirm your invoice information": "Confirm your invoice information",
@@ -425,6 +445,8 @@
     "Scope": "Scope",
     "Scope - Tooltip": "Scope - Tooltip",
     "Secret access key": "シークレットアクセスキー",
+    "Secret key": "Secret key",
+    "Secret key - Tooltip": "Secret key - Tooltip",
     "SecretAccessKey - Tooltip": "シークレットアクセスキー - ツールチップ",
     "Sign Name": "署名名",
     "Sign Name - Tooltip": "Unique string-style identifier",
@@ -436,6 +458,8 @@
     "Signup HTML": "HTMLの登録",
     "Signup HTML - Edit": "HTMLの登録 - 編集",
     "Signup HTML - Tooltip": "サインアップ HTML - ツールチップ",
+    "Site key": "Site key",
+    "Site key - Tooltip": "Site key - Tooltip",
     "Sub type": "Sub type",
     "Sub type - Tooltip": "Sub type - Tooltip",
     "Template Code": "テンプレートコード",
@@ -454,7 +478,6 @@
     "canUnlink": "canUnlink",
     "prompted": "プロンプトされた",
     "required": "必須",
-    "rule": "ルール",
     "visible": "表示"
   },
   "record": {
@@ -483,6 +506,7 @@
   },
   "signup": {
     "Accept": "同意する",
+    "Agreement": "Agreement",
     "Confirm": "確認する",
     "Decline": "同意しない",
     "Have account?": "アカウントをお持ちですか？",
@@ -558,6 +582,8 @@
     "Bio": "略歴",
     "Bio - Tooltip": "バイオチップ（ツールチップ）",
     "Cancel": "キャンセル",
+    "Captcha Verify Failed": "Captcha Verify Failed",
+    "Captcha Verify Success": "Captcha Verify Success",
     "Code Sent": "コードを送信しました",
     "Country/Region": "国/地域",
     "Country/Region - Tooltip": "Country/Region",

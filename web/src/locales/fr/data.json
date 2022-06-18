@@ -6,6 +6,9 @@
     "Sign Up": "S'inscrire"
   },
   "application": {
+    "Copy prompt page URL": "Copy prompt page URL",
+    "Copy signin page URL": "Copy signin page URL",
+    "Copy signup page URL": "Copy signup page URL",
     "Edit Application": "Modifier l'application",
     "Enable code signin": "Activer la connexion au code",
     "Enable code signin - Tooltip": "Activer la connexion au code - infobulle",
@@ -19,21 +22,24 @@
     "Password ON": "Mot de passe activé",
     "Password ON - Tooltip": "Whether to allow password login",
     "Please select a HTML file": "Veuillez sélectionner un fichier HTML",
+    "Prompt page URL copied to clipboard successfully, please paste it into the incognito window or another browser": "Prompt page URL copied to clipboard successfully, please paste it into the incognito window or another browser",
     "Redirect URL": "URL de redirection",
     "Redirect URLs": "URL de redirection",
     "Redirect URLs - Tooltip": "List of redirect addresses after successful login",
     "Refresh token expire": "Expiration du jeton d'actualisation",
     "Refresh token expire - Tooltip": "Expiration du jeton d'actualisation - infobulle",
+    "SAML metadata": "SAML metadata",
+    "SAML metadata - Tooltip": "SAML metadata - Tooltip",
+    "Signin page URL copied to clipboard successfully, please paste it into the incognito window or another browser": "Signin page URL copied to clipboard successfully, please paste it into the incognito window or another browser",
     "Signin session": "Connexion à la session",
     "Signup items": "Inscrire des éléments",
     "Signup items - Tooltip": "Signup items that need to be filled in when users register",
-    "Test prompt page..": "Tester la vitesse d'exécution.",
-    "Test signin page..": "Tester la connexion en ligne.",
-    "Test signup page..": "Tester l'inscription.",
+    "Signup page URL copied to clipboard successfully, please paste it into the incognito window or another browser": "Signup page URL copied to clipboard successfully, please paste it into the incognito window or another browser",
     "Token expire": "Expiration du jeton",
     "Token expire - Tooltip": "Expiration du jeton - Info-bulle",
     "Token format": "Format du jeton",
-    "Token format - Tooltip": "Format du jeton - infobulle"
+    "Token format - Tooltip": "Format du jeton - infobulle",
+    "rule": "rule"
   },
   "cert": {
     "Bit size": "Taille du bit",
@@ -99,6 +105,7 @@
     "Cert": "Cert",
     "Cert - Tooltip": "Cert - Tooltip",
     "Certs": "Certes",
+    "Click to Upload": "Click to Upload",
     "Client IP": "IP du client",
     "Created time": "Date de création",
     "Default avatar": "Avatar par défaut",
@@ -131,6 +138,9 @@
     "Master password": "Mot de passe maître",
     "Master password - Tooltip": "Mot de passe maître - Infobulle",
     "Method": "Méthode",
+    "Model": "Model",
+    "Model - Tooltip": "Model - Tooltip",
+    "Models": "Models",
     "Name": "Nom",
     "Name - Tooltip": "Unique string-style identifier",
     "OAuth providers": "Fournisseurs OAuth",
@@ -243,7 +253,15 @@
     "sign up now": "inscrivez-vous maintenant",
     "username, Email or phone": "nom d'utilisateur, e-mail ou téléphone"
   },
+  "model": {
+    "Edit Model": "Edit Model",
+    "Model text": "Model text",
+    "Model text - Tooltip": "Model text - Tooltip",
+    "New Model": "New Model"
+  },
   "organization": {
+    "Account items": "Account items",
+    "Account items - Tooltip": "Account items - Tooltip",
     "Default avatar": "Avatar par défaut",
     "Edit Organization": "Modifier l'organisation",
     "Favicon": "Favicon",
@@ -255,7 +273,9 @@
     "Tags": "Tags",
     "Tags - Tooltip": "Tags - Tooltip",
     "Website URL": "URL du site web",
-    "Website URL - Tooltip": "Unique string-style identifier"
+    "Website URL - Tooltip": "Unique string-style identifier",
+    "modifyRule": "modifyRule",
+    "viewRule": "viewRule"
   },
   "payment": {
     "Confirm your invoice information": "Confirm your invoice information",
@@ -425,6 +445,8 @@
     "Scope": "Scope",
     "Scope - Tooltip": "Scope - Tooltip",
     "Secret access key": "Clé d'accès secrète",
+    "Secret key": "Secret key",
+    "Secret key - Tooltip": "Secret key - Tooltip",
     "SecretAccessKey - Tooltip": "SecretAccessKey - Infobulle",
     "Sign Name": "Nom du panneau",
     "Sign Name - Tooltip": "Unique string-style identifier",
@@ -436,6 +458,8 @@
     "Signup HTML": "Inscription HTML",
     "Signup HTML - Edit": "Inscription HTML - Modifier",
     "Signup HTML - Tooltip": "Inscription HTML - infobulle",
+    "Site key": "Site key",
+    "Site key - Tooltip": "Site key - Tooltip",
     "Sub type": "Sub type",
     "Sub type - Tooltip": "Sub type - Tooltip",
     "Template Code": "Code du modèle",
@@ -454,7 +478,6 @@
     "canUnlink": "canUnlink",
     "prompted": "invitée",
     "required": "Obligatoire",
-    "rule": "règle",
     "visible": "Visible"
   },
   "record": {
@@ -483,6 +506,7 @@
   },
   "signup": {
     "Accept": "Accepter",
+    "Agreement": "Agreement",
     "Confirm": "Valider",
     "Decline": "Refuser",
     "Have account?": "Vous avez un compte ?",
@@ -558,6 +582,8 @@
     "Bio": "Bio",
     "Bio - Tooltip": "Bio - Infobulle",
     "Cancel": "Abandonner",
+    "Captcha Verify Failed": "Captcha Verify Failed",
+    "Captcha Verify Success": "Captcha Verify Success",
     "Code Sent": "Code envoyé",
     "Country/Region": "Pays/Région",
     "Country/Region - Tooltip": "Country/Region",

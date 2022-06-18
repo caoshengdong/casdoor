@@ -1,4 +1,4 @@
-// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+// Copyright 2022 The Casdoor Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,12 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package object
+package captcha
 
-type SignupItem struct {
-	Name     string `json:"name"`
-	Visible  bool   `json:"visible"`
-	Required bool   `json:"required"`
-	Prompted bool   `json:"prompted"`
-	Rule     string `json:"rule"`
+type CaptchaProvider interface {
+	VerifyCaptcha(token, clientSecret string) (bool, error)
+}
+
+func GetCaptchaProvider(captchaType string) CaptchaProvider {
+	if captchaType == "Default" {
+		return NewDefaultCaptchaProvider()
+	} else if captchaType == "reCAPTCHA" {
+		return NewReCaptchaProvider()
+	} else if captchaType == "hCaptcha" {
+		return NewHCaptchaProvider()
+	}
+	return nil
 }
