@@ -17,14 +17,15 @@ package object
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/casdoor/casdoor/util"
-	"xorm.io/core"
+	"github.com/xorm-io/core"
 )
 
 func updateUserColumn(column string, user *User) bool {
-	affected, err := adapter.Engine.ID(core.PK{user.Owner, user.Name}).Cols(column).Update(user)
+	affected, err := ormer.Engine.ID(core.PK{user.Owner, user.Name}).Cols(column).Update(user)
 	if err != nil {
 		panic(err)
 	}
@@ -35,13 +36,13 @@ func updateUserColumn(column string, user *User) bool {
 func TestSyncAvatarsFromGitHub(t *testing.T) {
 	InitConfig()
 
-	users := GetGlobalUsers()
+	users, _ := GetGlobalUsers()
 	for _, user := range users {
-		if user.Github == "" {
+		if user.GitHub == "" {
 			continue
 		}
 
-		user.Avatar = fmt.Sprintf("https://avatars.githubusercontent.com/%s", user.Github)
+		user.Avatar = fmt.Sprintf("https://avatars.githubusercontent.com/%s", user.GitHub)
 		updateUserColumn("avatar", user)
 	}
 }
@@ -49,7 +50,7 @@ func TestSyncAvatarsFromGitHub(t *testing.T) {
 func TestSyncIds(t *testing.T) {
 	InitConfig()
 
-	users := GetGlobalUsers()
+	users, _ := GetGlobalUsers()
 	for _, user := range users {
 		if user.Id != "" {
 			continue
@@ -63,13 +64,16 @@ func TestSyncIds(t *testing.T) {
 func TestSyncHashes(t *testing.T) {
 	InitConfig()
 
-	users := GetGlobalUsers()
+	users, _ := GetGlobalUsers()
 	for _, user := range users {
 		if user.Hash != "" {
 			continue
 		}
 
-		user.UpdateUserHash()
+		err := user.UpdateUserHash()
+		if err != nil {
+			panic(err)
+		}
 		updateUserColumn("hash", user)
 	}
 }
@@ -91,7 +95,7 @@ func TestGetMaskedUsers(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := GetMaskedUsers(tt.args.users); !reflect.DeepEqual(got, tt.want) {
+			if got, _ := GetMaskedUsers(tt.args.users); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GetMaskedUsers() = %v, want %v", got, tt.want)
 			}
 		})
@@ -101,10 +105,31 @@ func TestGetMaskedUsers(t *testing.T) {
 func TestGetUserByField(t *testing.T) {
 	InitConfig()
 
-	user := GetUserByField("built-in", "DingTalk", "test")
+	user, _ := GetUserByField("built-in", "DingTalk", "test")
 	if user != nil {
 		t.Logf("%+v", user)
 	} else {
 		t.Log("no user found")
 	}
+}
+
+func TestGetEmailsForUsers(t *testing.T) {
+	InitConfig()
+
+	emailMap := map[string]int{}
+	emails := []string{}
+	users, _ := GetUsers("built-in")
+	for _, user := range users {
+		if user.Email == "" {
+			continue
+		}
+
+		if _, ok := emailMap[user.Email]; !ok {
+			emailMap[user.Email] = 1
+			emails = append(emails, user.Email)
+		}
+	}
+
+	text := strings.Join(emails, "\n")
+	println(text)
 }

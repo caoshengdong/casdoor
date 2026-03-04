@@ -16,14 +16,15 @@ package object
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/casdoor/casdoor/util"
-	"xorm.io/core"
+	"github.com/xorm-io/core"
 )
 
 type Resource struct {
 	Owner       string `xorm:"varchar(100) notnull pk" json:"owner"`
-	Name        string `xorm:"varchar(250) notnull pk" json:"name"`
+	Name        string `xorm:"varchar(180) notnull pk" json:"name"`
 	CreatedTime string `xorm:"varchar(100)" json:"createdTime"`
 
 	User        string `xorm:"varchar(100)" json:"user"`
@@ -31,41 +32,36 @@ type Resource struct {
 	Application string `xorm:"varchar(100)" json:"application"`
 	Tag         string `xorm:"varchar(100)" json:"tag"`
 	Parent      string `xorm:"varchar(100)" json:"parent"`
-	FileName    string `xorm:"varchar(1000)" json:"fileName"`
+	FileName    string `xorm:"varchar(255)" json:"fileName"`
 	FileType    string `xorm:"varchar(100)" json:"fileType"`
 	FileFormat  string `xorm:"varchar(100)" json:"fileFormat"`
 	FileSize    int    `json:"fileSize"`
-	Url         string `xorm:"varchar(1000)" json:"url"`
-	Description string `xorm:"varchar(1000)" json:"description"`
+	Url         string `xorm:"varchar(500)" json:"url"`
+	Description string `xorm:"varchar(255)" json:"description"`
 }
 
-func GetResourceCount(owner, user, field, value string) int {
+func GetResourceCount(owner, user, field, value string) (int64, error) {
 	session := GetSession(owner, -1, -1, field, value, "", "")
-	count, err := session.Count(&Resource{User: user})
-	if err != nil {
-		panic(err)
-	}
-
-	return int(count)
+	return session.Count(&Resource{User: user})
 }
 
-func GetResources(owner string, user string) []*Resource {
-	if owner == "built-in" {
+func GetResources(owner string, user string) ([]*Resource, error) {
+	if owner == "built-in" || owner == "" {
 		owner = ""
 		user = ""
 	}
 
 	resources := []*Resource{}
-	err := adapter.Engine.Desc("created_time").Find(&resources, &Resource{Owner: owner, User: user})
+	err := ormer.Engine.Desc("created_time").Find(&resources, &Resource{Owner: owner, User: user})
 	if err != nil {
-		panic(err)
+		return resources, err
 	}
 
-	return resources
+	return resources, err
 }
 
-func GetPaginationResources(owner, user string, offset, limit int, field, value, sortField, sortOrder string) []*Resource {
-	if owner == "built-in" {
+func GetPaginationResources(owner, user string, offset, limit int, field, value, sortField, sortOrder string) ([]*Resource, error) {
+	if owner == "built-in" || owner == "" {
 		owner = ""
 		user = ""
 	}
@@ -74,70 +70,78 @@ func GetPaginationResources(owner, user string, offset, limit int, field, value,
 	session := GetSession(owner, offset, limit, field, value, sortField, sortOrder)
 	err := session.Find(&resources, &Resource{User: user})
 	if err != nil {
-		panic(err)
+		return resources, err
 	}
 
-	return resources
+	return resources, nil
 }
 
-func getResource(owner string, name string) *Resource {
+func getResource(owner string, name string) (*Resource, error) {
+	if !strings.HasPrefix(name, "/") {
+		name = "/" + name
+	}
+
 	resource := Resource{Owner: owner, Name: name}
-	existed, err := adapter.Engine.Get(&resource)
+	existed, err := ormer.Engine.Get(&resource)
 	if err != nil {
-		panic(err)
+		return &resource, err
 	}
 
 	if existed {
-		return &resource
+		return &resource, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
-func GetResource(id string) *Resource {
+func GetResource(id string) (*Resource, error) {
 	owner, name := util.GetOwnerAndNameFromIdNoCheck(id)
 	return getResource(owner, name)
 }
 
-func UpdateResource(id string, resource *Resource) bool {
+func UpdateResource(id string, resource *Resource) (bool, error) {
 	owner, name := util.GetOwnerAndNameFromIdNoCheck(id)
-	if getResource(owner, name) == nil {
-		return false
+	if r, err := getResource(owner, name); err != nil {
+		return false, err
+	} else if r == nil {
+		return false, nil
 	}
 
-	_, err := adapter.Engine.ID(core.PK{owner, name}).AllCols().Update(resource)
+	_, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(resource)
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
-	//return affected != 0
-	return true
+	// return affected != 0
+	return true, nil
 }
 
-func AddResource(resource *Resource) bool {
-	affected, err := adapter.Engine.Insert(resource)
+func AddResource(resource *Resource) (bool, error) {
+	affected, err := ormer.Engine.Insert(resource)
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
-	return affected != 0
+	return affected != 0, nil
 }
 
-func DeleteResource(resource *Resource) bool {
-	affected, err := adapter.Engine.ID(core.PK{resource.Owner, resource.Name}).Delete(&Resource{})
+func DeleteResource(resource *Resource) (bool, error) {
+	affected, err := ormer.Engine.ID(core.PK{resource.Owner, resource.Name}).Delete(&Resource{})
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
-	return affected != 0
+	return affected != 0, nil
 }
 
 func (resource *Resource) GetId() string {
 	return fmt.Sprintf("%s/%s", resource.Owner, resource.Name)
 }
 
-func AddOrUpdateResource(resource *Resource) bool {
-	if getResource(resource.Owner, resource.Name) == nil {
+func AddOrUpdateResource(resource *Resource) (bool, error) {
+	if r, err := getResource(resource.Owner, resource.Name); err != nil {
+		return false, err
+	} else if r == nil {
 		return AddResource(resource)
 	} else {
 		return UpdateResource(resource.GetId(), resource)

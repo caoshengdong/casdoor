@@ -17,7 +17,7 @@ package captcha
 import (
 	"encoding/json"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,15 +25,14 @@ import (
 
 const HCaptchaVerifyUrl = "https://hcaptcha.com/siteverify"
 
-type HCaptchaProvider struct {
-}
+type HCaptchaProvider struct{}
 
 func NewHCaptchaProvider() *HCaptchaProvider {
 	captcha := &HCaptchaProvider{}
 	return captcha
 }
 
-func (captcha *HCaptchaProvider) VerifyCaptcha(token, clientSecret string) (bool, error) {
+func (captcha *HCaptchaProvider) VerifyCaptcha(token, clientId, clientSecret, clientId2 string) (bool, error) {
 	reqData := url.Values{
 		"secret":   {clientSecret},
 		"response": {token},
@@ -44,7 +43,7 @@ func (captcha *HCaptchaProvider) VerifyCaptcha(token, clientSecret string) (bool
 	}
 
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return false, err
 	}

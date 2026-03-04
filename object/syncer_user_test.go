@@ -12,7 +12,6 @@
 // limitations under the License.
 
 //go:build !skipCi
-// +build !skipCi
 
 package object
 
@@ -23,7 +22,7 @@ import (
 
 func TestGetUsers(t *testing.T) {
 	InitConfig()
-	syncers := GetSyncers("admin")
+	syncers, _ := GetSyncers("admin")
 	syncer := syncers[0]
 	syncer.initAdapter()
 	users, _ := syncer.getOriginalUsers()

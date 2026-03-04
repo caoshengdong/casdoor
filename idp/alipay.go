@@ -24,7 +24,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"sort"
@@ -56,12 +55,12 @@ func (idp *AlipayIdProvider) SetHttpClient(client *http.Client) {
 
 // getConfig return a point of Config, which describes a typical 3-legged OAuth2 flow
 func (idp *AlipayIdProvider) getConfig(clientId string, clientSecret string, redirectUrl string) *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
+	endpoint := oauth2.Endpoint{
 		AuthURL:  "https://openauth.alipay.com/oauth2/publicAppAuthorize.htm",
 		TokenURL: "https://openapi.alipay.com/gateway.do",
 	}
 
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		Scopes:       []string{"", ""},
 		Endpoint:     endpoint,
 		ClientID:     clientId,
@@ -201,12 +200,11 @@ func (idp *AlipayIdProvider) postWithBody(body interface{}, targetUrl string) ([
 
 	formData.Set("sign", sign)
 
-	resp, err := idp.Client.PostForm(targetUrl, formData)
+	resp, err := idp.Client.Post(targetUrl, "application/x-www-form-urlencoded;charset=utf-8", strings.NewReader(formData.Encode()))
 	if err != nil {
 		return nil, err
 	}
-	data, err := ioutil.ReadAll(resp.Body)
-
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -266,27 +264,31 @@ func rsaSignWithRSA256(signContent string, privateKey string) (string, error) {
 
 // privateKey in database is a string, format it to PEM style
 func formatPrivateKey(privateKey string) string {
-	// each line length is 64
-	preFmtPrivateKey := ""
-	for i := 0; ; {
-		if i+64 <= len(privateKey) {
-			preFmtPrivateKey = preFmtPrivateKey + privateKey[i:i+64] + "\n"
-			i += 64
-		} else {
-			preFmtPrivateKey = preFmtPrivateKey + privateKey[i:]
-			break
+	// Check if the key is already in PEM format
+	if strings.HasPrefix(privateKey, "-----BEGIN PRIVATE KEY-----") ||
+		strings.HasPrefix(privateKey, "-----BEGIN RSA PRIVATE KEY-----") {
+		// Key is already in PEM format, return as is
+		return privateKey
+	}
+
+	// Remove any whitespace from the key
+	privateKey = strings.ReplaceAll(privateKey, "\n", "")
+	privateKey = strings.ReplaceAll(privateKey, "\r", "")
+	privateKey = strings.ReplaceAll(privateKey, " ", "")
+
+	// Format the key with line breaks every 64 characters using strings.Builder
+	var builder strings.Builder
+	for i := 0; i < len(privateKey); i += 64 {
+		end := i + 64
+		if end > len(privateKey) {
+			end = len(privateKey)
+		}
+		builder.WriteString(privateKey[i:end])
+		if end < len(privateKey) {
+			builder.WriteString("\n")
 		}
 	}
-	privateKey = strings.Trim(preFmtPrivateKey, "\n")
 
 	// add pkcs#8 BEGIN and END
-	PemBegin := "-----BEGIN PRIVATE KEY-----\n"
-	PemEnd := "\n-----END PRIVATE KEY-----"
-	if !strings.HasPrefix(privateKey, PemBegin) {
-		privateKey = PemBegin + privateKey
-	}
-	if !strings.HasSuffix(privateKey, PemEnd) {
-		privateKey = privateKey + PemEnd
-	}
-	return privateKey
+	return "-----BEGIN PRIVATE KEY-----\n" + builder.String() + "\n-----END PRIVATE KEY-----"
 }

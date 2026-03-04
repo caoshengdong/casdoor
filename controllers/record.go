@@ -15,7 +15,11 @@
 package controllers
 
 import (
-	"github.com/astaxie/beego/utils/pagination"
+	"encoding/json"
+
+	"github.com/casvisor/casvisor-go-sdk/casvisorsdk"
+
+	"github.com/beego/beego/v2/core/utils/pagination"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/util"
 )
@@ -29,19 +33,46 @@ import (
 // @Success 200 {object} object.Record The Response object
 // @router /get-records [get]
 func (c *ApiController) GetRecords() {
-	limit := c.Input().Get("pageSize")
-	page := c.Input().Get("p")
-	field := c.Input().Get("field")
-	value := c.Input().Get("value")
-	sortField := c.Input().Get("sortField")
-	sortOrder := c.Input().Get("sortOrder")
+	organization, ok := c.RequireAdmin()
+	if !ok {
+		return
+	}
+
+	limit := c.Ctx.Input.Query("pageSize")
+	page := c.Ctx.Input.Query("p")
+	field := c.Ctx.Input.Query("field")
+	value := c.Ctx.Input.Query("value")
+	sortField := c.Ctx.Input.Query("sortField")
+	sortOrder := c.Ctx.Input.Query("sortOrder")
+	organizationName := c.Ctx.Input.Query("organizationName")
+
 	if limit == "" || page == "" {
-		c.Data["json"] = object.GetRecords()
-		c.ServeJSON()
+		records, err := object.GetRecords()
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(records)
 	} else {
 		limit := util.ParseInt(limit)
-		paginator := pagination.SetPaginator(c.Ctx, limit, int64(object.GetRecordCount(field, value)))
-		records := object.GetPaginationRecords(paginator.Offset(), limit, field, value, sortField, sortOrder)
+		if c.IsGlobalAdmin() && organizationName != "" {
+			organization = organizationName
+		}
+		filterRecord := &casvisorsdk.Record{Organization: organization}
+		count, err := object.GetRecordCount(field, value, filterRecord)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
+		records, err := object.GetPaginationRecords(paginator.Offset(), limit, field, value, sortField, sortOrder, filterRecord)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
 		c.ResponseOk(records, paginator.Nums())
 	}
 }
@@ -54,14 +85,44 @@ func (c *ApiController) GetRecords() {
 // @Success 200 {object} object.Record The Response object
 // @router /get-records-filter [post]
 func (c *ApiController) GetRecordsByFilter() {
-	body := string(c.Ctx.Input.RequestBody)
-
-	record := &object.Record{}
-	err := util.JsonToStruct(body, record)
-	if err != nil {
-		panic(err)
+	_, ok := c.RequireAdmin()
+	if !ok {
+		return
 	}
 
-	c.Data["json"] = object.GetRecordsByField(record)
+	body := string(c.Ctx.Input.RequestBody)
+
+	record := &casvisorsdk.Record{}
+	err := util.JsonToStruct(body, record)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	records, err := object.GetRecordsByField(record)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk(records)
+}
+
+// AddRecord
+// @Title AddRecord
+// @Tag Record API
+// @Description add a record
+// @Param   body    body   object.Record  true        "The details of the record"
+// @Success 200 {object} controllers.Response The Response object
+// @router /add-record [post]
+func (c *ApiController) AddRecord() {
+	var record casvisorsdk.Record
+	err := json.Unmarshal(c.Ctx.Input.RequestBody, &record)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.Data["json"] = wrapActionResponse(object.AddRecord(&record))
 	c.ServeJSON()
 }

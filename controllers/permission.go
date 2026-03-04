@@ -17,7 +17,7 @@ package controllers
 import (
 	"encoding/json"
 
-	"github.com/astaxie/beego/utils/pagination"
+	"github.com/beego/beego/v2/core/utils/pagination"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/util"
 )
@@ -30,57 +30,122 @@ import (
 // @Success 200 {array} object.Permission The Response object
 // @router /get-permissions [get]
 func (c *ApiController) GetPermissions() {
-	owner := c.Input().Get("owner")
-	limit := c.Input().Get("pageSize")
-	page := c.Input().Get("p")
-	field := c.Input().Get("field")
-	value := c.Input().Get("value")
-	sortField := c.Input().Get("sortField")
-	sortOrder := c.Input().Get("sortOrder")
+	owner := c.Ctx.Input.Query("owner")
+	limit := c.Ctx.Input.Query("pageSize")
+	page := c.Ctx.Input.Query("p")
+	field := c.Ctx.Input.Query("field")
+	value := c.Ctx.Input.Query("value")
+	sortField := c.Ctx.Input.Query("sortField")
+	sortOrder := c.Ctx.Input.Query("sortOrder")
+
 	if limit == "" || page == "" {
-		c.Data["json"] = object.GetPermissions(owner)
-		c.ServeJSON()
+		permissions, err := object.GetPermissions(owner)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(permissions)
 	} else {
 		limit := util.ParseInt(limit)
-		paginator := pagination.SetPaginator(c.Ctx, limit, int64(object.GetPermissionCount(owner, field, value)))
-		permissions := object.GetPaginationPermissions(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		count, err := object.GetPermissionCount(owner, field, value)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
+		permissions, err := object.GetPaginationPermissions(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
 		c.ResponseOk(permissions, paginator.Nums())
 	}
 }
 
+// GetPermissionsBySubmitter
+// @Title GetPermissionsBySubmitter
+// @Tag Permission API
+// @Description get permissions by submitter
+// @Success 200 {array} object.Permission The Response object
+// @router /get-permissions-by-submitter [get]
+func (c *ApiController) GetPermissionsBySubmitter() {
+	user, ok := c.RequireSignedInUser()
+	if !ok {
+		return
+	}
+
+	permissions, err := object.GetPermissionsBySubmitter(user.Owner, user.Name)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk(permissions, len(permissions))
+}
+
+// GetPermissionsByRole
+// @Title GetPermissionsByRole
+// @Tag Permission API
+// @Description get permissions by role
+// @Param   id     query    string  true        "The id ( owner/name ) of the role"
+// @Success 200 {array} object.Permission The Response object
+// @router /get-permissions-by-role [get]
+func (c *ApiController) GetPermissionsByRole() {
+	id := c.Ctx.Input.Query("id")
+	permissions, err := object.GetPermissionsByRole(id)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk(permissions, len(permissions))
+}
+
+// GetPermission
 // @Title GetPermission
 // @Tag Permission API
 // @Description get permission
-// @Param   id    query    string  true        "The id of the permission"
+// @Param   id     query    string  true        "The id ( owner/name ) of the permission"
 // @Success 200 {object} object.Permission The Response object
 // @router /get-permission [get]
 func (c *ApiController) GetPermission() {
-	id := c.Input().Get("id")
+	id := c.Ctx.Input.Query("id")
 
-	c.Data["json"] = object.GetPermission(id)
-	c.ServeJSON()
+	permission, err := object.GetPermission(id)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk(permission)
 }
 
+// UpdatePermission
 // @Title UpdatePermission
 // @Tag Permission API
 // @Description update permission
-// @Param   id    query    string  true        "The id of the permission"
+// @Param   id     query    string  true        "The id ( owner/name ) of the permission"
 // @Param   body    body   object.Permission  true        "The details of the permission"
 // @Success 200 {object} controllers.Response The Response object
 // @router /update-permission [post]
 func (c *ApiController) UpdatePermission() {
-	id := c.Input().Get("id")
+	id := c.Ctx.Input.Query("id")
 
 	var permission object.Permission
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &permission)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 
 	c.Data["json"] = wrapActionResponse(object.UpdatePermission(id, &permission))
 	c.ServeJSON()
 }
 
+// AddPermission
 // @Title AddPermission
 // @Tag Permission API
 // @Description add permission
@@ -91,13 +156,15 @@ func (c *ApiController) AddPermission() {
 	var permission object.Permission
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &permission)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 
 	c.Data["json"] = wrapActionResponse(object.AddPermission(&permission))
 	c.ServeJSON()
 }
 
+// DeletePermission
 // @Title DeletePermission
 // @Tag Permission API
 // @Description delete permission
@@ -108,7 +175,8 @@ func (c *ApiController) DeletePermission() {
 	var permission object.Permission
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &permission)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 
 	c.Data["json"] = wrapActionResponse(object.DeletePermission(&permission))

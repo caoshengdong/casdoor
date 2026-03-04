@@ -16,82 +16,165 @@ package object
 
 import (
 	"fmt"
-	"time"
+
+	"github.com/casdoor/casdoor/util"
 )
 
-func (syncer *Syncer) syncUsers() {
+func (syncer *Syncer) syncUsers() error {
+	if len(syncer.TableColumns) == 0 {
+		return fmt.Errorf("The syncer table columns should not be empty")
+	}
+
 	fmt.Printf("Running syncUsers()..\n")
 
-	users, userMap := syncer.getUserMap()
-	oUsers, oUserMap, err := syncer.getOriginalUserMap()
+	users, err := GetUsers(syncer.Organization)
 	if err != nil {
-		fmt.Printf(err.Error())
+		line := fmt.Sprintf("[%s] %s\n", util.GetCurrentTime(), err.Error())
+		_, err2 := updateSyncerErrorText(syncer, line)
+		if err2 != nil {
+			panic(err2)
+		}
 
-		timestamp := time.Now().Format("2006-01-02 15:04:05")
-		line := fmt.Sprintf("[%s] %s\n", timestamp, err.Error())
-		updateSyncerErrorText(syncer, line)
-		return
+		return err
+	}
+
+	oUsers, err := syncer.getOriginalUsers()
+	if err != nil {
+		line := fmt.Sprintf("[%s] %s\n", util.GetCurrentTime(), err.Error())
+		_, err2 := updateSyncerErrorText(syncer, line)
+		if err2 != nil {
+			panic(err2)
+		}
+
+		return err
 	}
 
 	fmt.Printf("Users: %d, oUsers: %d\n", len(users), len(oUsers))
 
 	var affiliationMap map[int]string
 	if syncer.AffiliationTable != "" {
-		_, affiliationMap = syncer.getAffiliationMap()
+		_, affiliationMap, err = syncer.getAffiliationMap()
+		if err != nil {
+			line := fmt.Sprintf("[%s] %s\n", util.GetCurrentTime(), err.Error())
+			_, err2 := updateSyncerErrorText(syncer, line)
+			if err2 != nil {
+				panic(err2)
+			}
+
+			return err
+		}
+	}
+
+	key := syncer.getLocalPrimaryKey()
+
+	myUsers := map[string]*User{}
+	for _, m := range users {
+		myUsers[syncer.getUserValue(m, key)] = m
+	}
+
+	myOUsers := map[string]*User{}
+	for _, m := range oUsers {
+		myOUsers[syncer.getUserValue(m, key)] = m
 	}
 
 	newUsers := []*User{}
 	for _, oUser := range oUsers {
-		id := oUser.Id
-		if _, ok := userMap[id]; !ok {
+		primary := syncer.getUserValue(oUser, key)
+
+		if _, ok := myUsers[primary]; !ok {
 			newUser := syncer.createUserFromOriginalUser(oUser, affiliationMap)
 			fmt.Printf("New user: %v\n", newUser)
 			newUsers = append(newUsers, newUser)
 		} else {
-			user := userMap[id]
+			user := myUsers[primary]
 			oHash := syncer.calculateHash(oUser)
-
 			if user.Hash == user.PreHash {
 				if user.Hash != oHash {
 					updatedUser := syncer.createUserFromOriginalUser(oUser, affiliationMap)
 					updatedUser.Hash = oHash
 					updatedUser.PreHash = oHash
-					syncer.updateUserForOriginalFields(updatedUser)
+
 					fmt.Printf("Update from oUser to user: %v\n", updatedUser)
+					_, err = syncer.updateUserForOriginalFields(updatedUser, key)
+					if err != nil {
+						return err
+					}
 				}
 			} else {
 				if user.PreHash == oHash {
-					updatedOUser := syncer.createOriginalUserFromUser(user)
-					syncer.updateUser(updatedOUser)
-					fmt.Printf("Update from user to oUser: %v\n", updatedOUser)
+					if !syncer.IsReadOnly {
+						updatedOUser := syncer.createOriginalUserFromUser(user)
+
+						fmt.Printf("Update from user to oUser: %v\n", updatedOUser)
+						_, err = syncer.updateUser(updatedOUser)
+						if err != nil {
+							return err
+						}
+					}
 
 					// update preHash
 					user.PreHash = user.Hash
-					SetUserField(user, "pre_hash", user.PreHash)
+					_, err = SetUserField(user, "pre_hash", user.PreHash)
+					if err != nil {
+						return err
+					}
 				} else {
 					if user.Hash == oHash {
 						// update preHash
 						user.PreHash = user.Hash
-						SetUserField(user, "pre_hash", user.PreHash)
+						_, err = SetUserField(user, "pre_hash", user.PreHash)
+						if err != nil {
+							return err
+						}
 					} else {
 						updatedUser := syncer.createUserFromOriginalUser(oUser, affiliationMap)
 						updatedUser.Hash = oHash
 						updatedUser.PreHash = oHash
-						syncer.updateUserForOriginalFields(updatedUser)
+
 						fmt.Printf("Update from oUser to user (2nd condition): %v\n", updatedUser)
+						_, err = syncer.updateUserForOriginalFields(updatedUser, key)
+						if err != nil {
+							return err
+						}
 					}
 				}
 			}
 		}
 	}
-	AddUsersInBatch(newUsers)
 
-	for _, user := range users {
-		id := user.Id
-		if _, ok := oUserMap[id]; !ok {
-			newOUser := syncer.createOriginalUserFromUser(user)
-			syncer.addUser(newOUser)
-			fmt.Printf("New oUser: %v\n", newOUser)
+	if len(newUsers) != 0 {
+		_, err = AddUsersInBatch(newUsers)
+		if err != nil {
+			return err
 		}
+
+		// Trigger webhooks for syncer user additions
+		for _, newUser := range newUsers {
+			TriggerWebhookForUser("new-user-syncer", newUser)
+		}
+	}
+
+	if !syncer.IsReadOnly {
+		for _, user := range users {
+			primary := syncer.getUserValue(user, key)
+			if _, ok := myOUsers[primary]; !ok {
+				newOUser := syncer.createOriginalUserFromUser(user)
+
+				fmt.Printf("New oUser: %v\n", newOUser)
+				_, err = syncer.addUser(newOUser)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (syncer *Syncer) syncUsersNoError() {
+	err := syncer.syncUsers()
+	if err != nil {
+		fmt.Printf("syncUsersNoError() error: %s\n", err.Error())
 	}
 }

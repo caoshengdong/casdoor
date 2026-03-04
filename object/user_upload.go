@@ -15,19 +15,27 @@
 package object
 
 import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
 	"github.com/casdoor/casdoor/xlsx"
 )
 
-func getUserMap(owner string) map[string]*User {
+func getUserMap(owner string) (map[string]*User, error) {
 	m := map[string]*User{}
 
-	users := GetUsers(owner)
+	users, err := GetUsers(owner)
+	if err != nil {
+		return m, err
+	}
 	for _, user := range users {
 		m[user.GetId()] = user
 	}
 
-	return m
+	return m, nil
 }
 
 func parseLineItem(line *[]string, i int) string {
@@ -47,72 +55,110 @@ func parseLineItemBool(line *[]string, i int) bool {
 	return parseLineItemInt(line, i) != 0
 }
 
-func UploadUsers(owner string, fileId string) bool {
-	table := xlsx.ReadXlsxFile(fileId)
+func parseListItem(lines *[]string, i int) []string {
+	if i >= len(*lines) {
+		return nil
+	}
+	line := (*lines)[i]
+	items := strings.Split(line, ";")
+	trimmedItems := make([]string, 0, len(items))
 
-	oldUserMap := getUserMap(owner)
+	for _, item := range items {
+		trimmedItem := strings.TrimSpace(item)
+		if trimmedItem != "" {
+			trimmedItems = append(trimmedItems, trimmedItem)
+		}
+	}
+
+	sort.Strings(trimmedItems)
+
+	return trimmedItems
+}
+
+func UploadUsers(owner string, path string, userObj *User, lang string) (bool, error) {
+	table := xlsx.ReadXlsxFile(path)
+
+	if len(table) == 0 {
+		return false, fmt.Errorf("empty table")
+	}
+
+	for idx, row := range table[0] {
+		splitRow := strings.Split(row, "#")
+		if len(splitRow) > 1 {
+			table[0][idx] = splitRow[1]
+		}
+	}
+
+	uploadedUsers, err := StringArrayToStruct[User](table)
+	if err != nil {
+		return false, err
+	}
+	if len(uploadedUsers) == 0 {
+		return false, fmt.Errorf("no users are provided")
+	}
+
+	organizationName := uploadedUsers[0].Owner
+	if organizationName == "" || !userObj.IsGlobalAdmin() {
+		organizationName = owner
+	}
+
+	organization, err := getOrganization("admin", organizationName)
+	if err != nil {
+		return false, err
+	}
+	if organization == nil {
+		return false, fmt.Errorf(i18n.Translate(lang, "auth:The organization: %s does not exist"), organizationName)
+	}
+
+	oldUserMap, err := getUserMap(organizationName)
+	if err != nil {
+		return false, err
+	}
+
 	newUsers := []*User{}
-	for index, line := range table {
-		if index == 0 || parseLineItem(&line, 0) == "" {
-			continue
-		}
-
-		user := &User{
-			Owner:             parseLineItem(&line, 0),
-			Name:              parseLineItem(&line, 1),
-			CreatedTime:       parseLineItem(&line, 2),
-			UpdatedTime:       parseLineItem(&line, 3),
-			Id:                parseLineItem(&line, 4),
-			Type:              parseLineItem(&line, 5),
-			Password:          parseLineItem(&line, 6),
-			PasswordSalt:      parseLineItem(&line, 7),
-			DisplayName:       parseLineItem(&line, 8),
-			FirstName:         parseLineItem(&line, 9),
-			LastName:          parseLineItem(&line, 10),
-			Avatar:            parseLineItem(&line, 11),
-			PermanentAvatar:   "",
-			Email:             parseLineItem(&line, 12),
-			Phone:             parseLineItem(&line, 13),
-			Location:          parseLineItem(&line, 14),
-			Address:           []string{parseLineItem(&line, 15)},
-			Affiliation:       parseLineItem(&line, 16),
-			Title:             parseLineItem(&line, 17),
-			IdCardType:        parseLineItem(&line, 18),
-			IdCard:            parseLineItem(&line, 19),
-			Homepage:          parseLineItem(&line, 20),
-			Bio:               parseLineItem(&line, 21),
-			Tag:               parseLineItem(&line, 22),
-			Region:            parseLineItem(&line, 23),
-			Language:          parseLineItem(&line, 24),
-			Gender:            parseLineItem(&line, 25),
-			Birthday:          parseLineItem(&line, 26),
-			Education:         parseLineItem(&line, 27),
-			Score:             parseLineItemInt(&line, 28),
-			Karma:             parseLineItemInt(&line, 29),
-			Ranking:           parseLineItemInt(&line, 30),
-			IsDefaultAvatar:   false,
-			IsOnline:          parseLineItemBool(&line, 31),
-			IsAdmin:           parseLineItemBool(&line, 32),
-			IsGlobalAdmin:     parseLineItemBool(&line, 33),
-			IsForbidden:       parseLineItemBool(&line, 34),
-			IsDeleted:         parseLineItemBool(&line, 35),
-			SignupApplication: parseLineItem(&line, 36),
-			Hash:              "",
-			PreHash:           "",
-			CreatedIp:         parseLineItem(&line, 37),
-			LastSigninTime:    parseLineItem(&line, 38),
-			LastSigninIp:      parseLineItem(&line, 39),
-			Ldap:              "",
-			Properties:        map[string]string{},
-		}
-
+	for _, user := range uploadedUsers {
 		if _, ok := oldUserMap[user.GetId()]; !ok {
+			user.Owner = organizationName
+			if user.CreatedTime == "" {
+				user.CreatedTime = util.GetCurrentTime()
+			}
+			if user.Id == "" {
+				user.Id = util.GenerateId()
+			}
+			if user.Type == "" {
+				user.Type = "normal-user"
+			}
+			user.PasswordType = "plain"
+			if user.DisplayName == "" {
+				user.DisplayName = user.Name
+			}
+			user.Avatar = organization.DefaultAvatar
+			if user.Region == "" {
+				user.Region = userObj.Region
+			}
+			if user.Address == nil {
+				user.Address = []string{}
+			}
+			if user.CountryCode == "" {
+				user.CountryCode = userObj.CountryCode
+			}
+			if user.SignupApplication == "" {
+				user.SignupApplication = organization.DefaultApplication
+			}
+			if user.RegisterType == "" {
+				user.RegisterType = "Upload Users"
+			}
+			if user.RegisterSource == "" {
+				user.RegisterSource = userObj.GetId()
+			}
+
 			newUsers = append(newUsers, user)
 		}
 	}
 
 	if len(newUsers) == 0 {
-		return false
+		return false, fmt.Errorf("no users are modified")
 	}
+
 	return AddUsersInBatch(newUsers)
 }

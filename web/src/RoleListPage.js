@@ -14,23 +14,29 @@
 
 import React from "react";
 import {Link} from "react-router-dom";
-import {Button, Popconfirm, Switch, Table} from "antd";
+import {Button, Modal, Switch, Table, Upload} from "antd";
 import moment from "moment";
 import * as Setting from "./Setting";
 import * as RoleBackend from "./backend/RoleBackend";
 import i18next from "i18next";
 import BaseListPage from "./BaseListPage";
+import PopconfirmModal from "./common/modal/PopconfirmModal";
+import {UploadOutlined} from "@ant-design/icons";
+import * as XLSX from "xlsx";
 
 class RoleListPage extends BaseListPage {
   newRole() {
     const randomName = Setting.getRandomName();
+    const owner = Setting.getRequestOrganization(this.props.account);
     return {
-      owner: "built-in",
+      owner: owner,
       name: `role_${randomName}`,
       createdTime: moment().format(),
       displayName: `New Role - ${randomName}`,
       users: [],
+      groups: [],
       roles: [],
+      domains: [],
       isEnabled: true,
     };
   }
@@ -39,31 +45,159 @@ class RoleListPage extends BaseListPage {
     const newRole = this.newRole();
     RoleBackend.addRole(newRole)
       .then((res) => {
-        this.props.history.push({pathname: `/roles/${newRole.owner}/${newRole.name}`, mode: "add"});
-      }
-      )
+        if (res.status === "ok") {
+          this.props.history.push({pathname: `/roles/${newRole.owner}/${newRole.name}`, mode: "add"});
+          Setting.showMessage("success", i18next.t("general:Successfully added"));
+        } else {
+          Setting.showMessage("error", `${i18next.t("general:Failed to add")}: ${res.msg}`);
+        }
+      })
       .catch(error => {
-        Setting.showMessage("error", `Role failed to add: ${error}`);
+        Setting.showMessage("error", `${i18next.t("general:Failed to connect to server")}: ${error}`);
       });
   }
 
   deleteRole(i) {
     RoleBackend.deleteRole(this.state.data[i])
       .then((res) => {
-        Setting.showMessage("success", "Role deleted successfully");
-        this.setState({
-          data: Setting.deleteRow(this.state.data, i),
-          pagination: {total: this.state.pagination.total - 1},
-        });
-      }
-      )
+        if (res.status === "ok") {
+          Setting.showMessage("success", i18next.t("general:Successfully deleted"));
+          this.fetch({
+            pagination: {
+              ...this.state.pagination,
+              current: this.state.pagination.current > 1 && this.state.data.length === 1 ? this.state.pagination.current - 1 : this.state.pagination.current,
+            },
+          });
+        } else {
+          Setting.showMessage("error", `${i18next.t("general:Failed to delete")}: ${res.msg}`);
+        }
+      })
       .catch(error => {
-        Setting.showMessage("error", `Role failed to delete: ${error}`);
+
       });
   }
 
+  uploadRoleFile(info) {
+    const {status, msg} = info;
+    if (status === "ok") {
+      Setting.showMessage("success", "Roles uploaded successfully, refreshing the page");
+      const {pagination} = this.state;
+      this.fetch({pagination});
+    } else if (status === "error") {
+      Setting.showMessage("error", `${i18next.t("general:Failed to upload")}: ${msg}`);
+    }
+    this.setState({uploadJsonData: [], uploadColumns: [], showUploadModal: false});
+  }
+
+  generateDownloadTemplate() {
+    const roleObj = {};
+    const items = Setting.getRoleColumns();
+    items.forEach((item) => {
+      roleObj[item] = null;
+    });
+    const worksheet = XLSX.utils.json_to_sheet([roleObj]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+    XLSX.writeFile(workbook, "import-role.xlsx", {compression: true});
+  }
+
+  renderRoleUpload() {
+    const uploadThis = this;
+    const props = {
+      name: "file",
+      accept: ".xlsx",
+      showUploadList: false,
+      beforeUpload: (file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const binary = e.target.result;
+
+          try {
+            const workbook = XLSX.read(binary, {type: "array"});
+            if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+              Setting.showMessage("error", i18next.t("general:No sheets found in file"));
+              return;
+            }
+
+            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            this.setState({uploadJsonData: jsonData, file: file});
+
+            const columns = Setting.getRoleColumns().map(el => {
+              return {title: el.split("#")[0], dataIndex: el, key: el};
+            });
+            this.setState({uploadColumns: columns}, () => {this.setState({showUploadModal: true});});
+          } catch (err) {
+            Setting.showMessage("error", `${i18next.t("general:Failed to upload")}: ${err.message}`);
+          }
+        };
+
+        reader.onerror = (error) => {
+          Setting.showMessage("error", `${i18next.t("general:Failed to upload")}: ${error?.message || error}`);
+        };
+
+        reader.readAsArrayBuffer(file);
+        return false;
+      },
+    };
+
+    return (
+      <>
+        <Upload {...props}>
+          <Button icon={<UploadOutlined />} size="small">
+            {i18next.t("general:Upload (.xlsx)")}
+          </Button>
+        </Upload>
+        <Modal title={i18next.t("general:Upload (.xlsx)")}
+          width={"100%"}
+          closable={true}
+          open={this.state.showUploadModal}
+          okText={i18next.t("general:Click to Upload")}
+          onOk = {() => {
+            const formData = new FormData();
+            formData.append("file", this.state.file);
+            fetch(`${Setting.ServerUrl}/api/upload-roles`, {
+              method: "post",
+              body: formData,
+              credentials: "include",
+              headers: {
+                "Accept-Language": Setting.getAcceptLanguage(),
+              },
+            })
+              .then((res) => res.json())
+              .then((res) => {uploadThis.uploadRoleFile(res);})
+              .catch((error) => {
+                Setting.showMessage("error", `${i18next.t("general:Failed to upload")}: ${error.message}`);
+              });
+          }}
+          cancelText={i18next.t("general:Cancel")}
+          onCancel={() => {this.setState({showUploadModal: false, uploadJsonData: [], uploadColumns: []});}}
+        >
+          <div style={{marginRight: "34px"}}>
+            <Table scroll={{x: "max-content"}} dataSource={this.state.uploadJsonData} columns={this.state.uploadColumns} />
+          </div>
+        </Modal>
+      </>
+    );
+  }
   renderTable(roles) {
     const columns = [
+      {
+        title: i18next.t("general:Name"),
+        dataIndex: "name",
+        key: "name",
+        width: "150px",
+        fixed: "left",
+        sorter: true,
+        ...this.getColumnSearchProps("name"),
+        render: (text, record, index) => {
+          return (
+            <Link to={`/roles/${record.owner}/${encodeURIComponent(record.name)}`}>
+              {text}
+            </Link>
+          );
+        },
+      },
       {
         title: i18next.t("general:Organization"),
         dataIndex: "owner",
@@ -77,23 +211,7 @@ class RoleListPage extends BaseListPage {
               {text}
             </Link>
           );
-        }
-      },
-      {
-        title: i18next.t("general:Name"),
-        dataIndex: "name",
-        key: "name",
-        width: "150px",
-        fixed: "left",
-        sorter: true,
-        ...this.getColumnSearchProps("name"),
-        render: (text, record, index) => {
-          return (
-            <Link to={`/roles/${text}`}>
-              {text}
-            </Link>
-          );
-        }
+        },
       },
       {
         title: i18next.t("general:Created time"),
@@ -103,7 +221,7 @@ class RoleListPage extends BaseListPage {
         sorter: true,
         render: (text, record, index) => {
           return Setting.getFormattedDate(text);
-        }
+        },
       },
       {
         title: i18next.t("general:Display name"),
@@ -121,8 +239,19 @@ class RoleListPage extends BaseListPage {
         sorter: true,
         ...this.getColumnSearchProps("users"),
         render: (text, record, index) => {
-          return Setting.getTags(text);
-        }
+          return Setting.getTags(text, "users");
+        },
+      },
+      {
+        title: i18next.t("role:Sub groups"),
+        dataIndex: "groups",
+        key: "groups",
+        // width: '100px',
+        sorter: true,
+        ...this.getColumnSearchProps("groups"),
+        render: (text, record, index) => {
+          return Setting.getTags(text, "groups");
+        },
       },
       {
         title: i18next.t("role:Sub roles"),
@@ -132,8 +261,18 @@ class RoleListPage extends BaseListPage {
         sorter: true,
         ...this.getColumnSearchProps("roles"),
         render: (text, record, index) => {
+          return Setting.getTags(text, "roles");
+        },
+      },
+      {
+        title: i18next.t("role:Sub domains"),
+        dataIndex: "domains",
+        key: "domains",
+        sorter: true,
+        ...this.getColumnSearchProps("domains"),
+        render: (text, record, index) => {
           return Setting.getTags(text);
-        }
+        },
       },
       {
         title: i18next.t("general:Is enabled"),
@@ -143,9 +282,9 @@ class RoleListPage extends BaseListPage {
         sorter: true,
         render: (text, record, index) => {
           return (
-            <Switch disabled checkedChildren="ON" unCheckedChildren="OFF" checked={text} />
+            <Switch disabled checkedChildren={i18next.t("general:ON")} unCheckedChildren={i18next.t("general:OFF")} checked={text} />
           );
-        }
+        },
       },
       {
         title: i18next.t("general:Action"),
@@ -156,16 +295,15 @@ class RoleListPage extends BaseListPage {
         render: (text, record, index) => {
           return (
             <div>
-              <Button style={{marginTop: "10px", marginBottom: "10px", marginRight: "10px"}} type="primary" onClick={() => this.props.history.push(`/roles/${record.owner}/${record.name}`)}>{i18next.t("general:Edit")}</Button>
-              <Popconfirm
-                title={`Sure to delete role: ${record.name} ?`}
+              <Button style={{marginTop: "10px", marginBottom: "10px", marginRight: "10px"}} type="primary" onClick={() => this.props.history.push(`/roles/${record.owner}/${encodeURIComponent(record.name)}`)}>{i18next.t("general:Edit")}</Button>
+              <PopconfirmModal
+                title={i18next.t("general:Sure to delete") + `: ${record.name} ?`}
                 onConfirm={() => this.deleteRole(index)}
               >
-                <Button style={{marginBottom: "10px"}} type="danger">{i18next.t("general:Delete")}</Button>
-              </Popconfirm>
+              </PopconfirmModal>
             </div>
           );
-        }
+        },
       },
     ];
 
@@ -178,11 +316,15 @@ class RoleListPage extends BaseListPage {
 
     return (
       <div>
-        <Table scroll={{x: "max-content"}} columns={columns} dataSource={roles} rowKey="name" size="middle" bordered pagination={paginationProps}
+        <Table scroll={{x: "max-content"}} columns={columns} dataSource={roles} rowKey={(record) => `${record.owner}/${record.name}`} size="middle" bordered pagination={paginationProps}
           title={() => (
             <div>
               {i18next.t("general:Roles")}&nbsp;&nbsp;&nbsp;&nbsp;
-              <Button type="primary" size="small" onClick={this.addRole.bind(this)}>{i18next.t("general:Add")}</Button>
+              <Button style={{marginRight: "5px"}} type="primary" size="small" onClick={this.addRole.bind(this)}>{i18next.t("general:Add")}</Button>
+              <Button style={{marginRight: "5px"}} type="primary" size="small" onClick={this.generateDownloadTemplate}>{i18next.t("general:Download template")} </Button>
+              {
+                this.renderRoleUpload()
+              }
             </div>
           )}
           loading={this.state.loading}
@@ -194,17 +336,19 @@ class RoleListPage extends BaseListPage {
 
   fetch = (params = {}) => {
     let field = params.searchedColumn, value = params.searchText;
-    let sortField = params.sortField, sortOrder = params.sortOrder;
+    const sortField = params.sortField, sortOrder = params.sortOrder;
     if (params.type !== undefined && params.type !== null) {
       field = "type";
       value = params.type;
     }
     this.setState({loading: true});
-    RoleBackend.getRoles("", params.pagination.current, params.pagination.pageSize, field, value, sortField, sortOrder)
+    RoleBackend.getRoles(Setting.isDefaultOrganizationSelected(this.props.account) ? "" : Setting.getRequestOrganization(this.props.account), params.pagination.current, params.pagination.pageSize, field, value, sortField, sortOrder)
       .then((res) => {
+        this.setState({
+          loading: false,
+        });
         if (res.status === "ok") {
           this.setState({
-            loading: false,
             data: res.data,
             pagination: {
               ...params.pagination,
@@ -213,6 +357,14 @@ class RoleListPage extends BaseListPage {
             searchText: params.searchText,
             searchedColumn: params.searchedColumn,
           });
+        } else {
+          if (Setting.isResponseDenied(res)) {
+            this.setState({
+              isAuthorized: false,
+            });
+          } else {
+            Setting.showMessage("error", res.msg);
+          }
         }
       });
   };

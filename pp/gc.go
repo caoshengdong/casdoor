@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -147,29 +146,29 @@ func (pp *GcPaymentProvider) doPost(postBytes []byte) ([]byte, error) {
 		}
 	}(resp.Body)
 
-	respBytes, err := ioutil.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 	return respBytes, nil
 }
 
-func (pp *GcPaymentProvider) Pay(providerName string, productName string, payerName string, paymentName string, productDisplayName string, price float64, returnUrl string, notifyUrl string) (string, error) {
+func (pp *GcPaymentProvider) Pay(r *PayReq) (*PayResp, error) {
 	payReqInfo := GcPayReqInfo{
 		OrderDate: util.GenerateSimpleTimeId(),
-		OrderNo:   paymentName,
-		Amount:    getPriceString(price),
+		OrderNo:   r.PaymentName,
+		Amount:    getPriceString(r.Price),
 		Xmpch:     pp.Xmpch,
-		Body:      productDisplayName,
-		ReturnUrl: returnUrl,
-		NotifyUrl: notifyUrl,
-		Remark1:   payerName,
-		Remark2:   productName,
+		Body:      r.ProductDisplayName,
+		ReturnUrl: r.ReturnUrl,
+		NotifyUrl: r.NotifyUrl,
+		Remark1:   r.PayerName,
+		Remark2:   r.ProductName,
 	}
 
 	b, err := json.Marshal(payReqInfo)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	body := GcRequestBody{
@@ -185,43 +184,45 @@ func (pp *GcPaymentProvider) Pay(providerName string, productName string, payerN
 
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	respBytes, err := pp.doPost(bodyBytes)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	var respBody GcResponseBody
 	err = json.Unmarshal(respBytes, &respBody)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if respBody.ReturnCode != "SUCCESS" {
-		return "", fmt.Errorf("%s: %s", respBody.ReturnCode, respBody.ReturnMsg)
+		return nil, fmt.Errorf("%s: %s", respBody.ReturnCode, respBody.ReturnMsg)
 	}
 
 	payRespInfoBytes, err := base64.StdEncoding.DecodeString(respBody.Data)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	var payRespInfo GcPayRespInfo
 	err = json.Unmarshal(payRespInfoBytes, &payRespInfo)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
-	return payRespInfo.PayUrl, nil
+	payResp := &PayResp{
+		PayUrl: payRespInfo.PayUrl,
+	}
+	return payResp, nil
 }
 
-func (pp *GcPaymentProvider) Notify(request *http.Request, body []byte, authorityPublicKey string) (string, string, float64, string, string, error) {
+func (pp *GcPaymentProvider) Notify(body []byte, orderId string) (*NotifyResult, error) {
 	reqBody := GcRequestBody{}
 	m, err := url.ParseQuery(string(body))
 	if err != nil {
-		return "", "", 0, "", "", err
+		return nil, err
 	}
 
 	reqBody.Op = m["op"][0]
@@ -233,13 +234,13 @@ func (pp *GcPaymentProvider) Notify(request *http.Request, body []byte, authorit
 
 	notifyReqInfoBytes, err := base64.StdEncoding.DecodeString(reqBody.Data)
 	if err != nil {
-		return "", "", 0, "", "", err
+		return nil, err
 	}
 
 	var notifyRespInfo GcNotifyRespInfo
 	err = json.Unmarshal(notifyReqInfoBytes, &notifyRespInfo)
 	if err != nil {
-		return "", "", 0, "", "", err
+		return nil, err
 	}
 
 	providerName := ""
@@ -250,10 +251,18 @@ func (pp *GcPaymentProvider) Notify(request *http.Request, body []byte, authorit
 	price := notifyRespInfo.Amount
 
 	if notifyRespInfo.OrderState != "1" {
-		return "", "", 0, "", "", fmt.Errorf("error order state: %s", notifyRespInfo.OrderDate)
+		return nil, fmt.Errorf("error order state: %s", notifyRespInfo.OrderDate)
 	}
-
-	return productDisplayName, paymentName, price, productName, providerName, nil
+	notifyResult := &NotifyResult{
+		ProductName:        productName,
+		ProductDisplayName: productDisplayName,
+		ProviderName:       providerName,
+		OrderId:            orderId,
+		Price:              price,
+		PaymentStatus:      PaymentStatePaid,
+		PaymentName:        paymentName,
+	}
+	return notifyResult, nil
 }
 
 func (pp *GcPaymentProvider) GetInvoice(paymentName string, personName string, personIdCard string, personEmail string, personPhone string, invoiceType string, invoiceTitle string, invoiceTaxId string) (string, error) {
@@ -329,4 +338,12 @@ func (pp *GcPaymentProvider) GetInvoice(paymentName string, personName string, p
 	}
 
 	return invoiceRespInfo.Url, nil
+}
+
+func (pp *GcPaymentProvider) GetResponseError(err error) string {
+	if err == nil {
+		return "success"
+	} else {
+		return "fail"
+	}
 }

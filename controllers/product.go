@@ -16,9 +16,8 @@ package controllers
 
 import (
 	"encoding/json"
-	"fmt"
 
-	"github.com/astaxie/beego/utils/pagination"
+	"github.com/beego/beego/v2/core/utils/pagination"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/util"
 )
@@ -31,57 +30,89 @@ import (
 // @Success 200 {array} object.Product The Response object
 // @router /get-products [get]
 func (c *ApiController) GetProducts() {
-	owner := c.Input().Get("owner")
-	limit := c.Input().Get("pageSize")
-	page := c.Input().Get("p")
-	field := c.Input().Get("field")
-	value := c.Input().Get("value")
-	sortField := c.Input().Get("sortField")
-	sortOrder := c.Input().Get("sortOrder")
+	owner := c.Ctx.Input.Query("owner")
+	limit := c.Ctx.Input.Query("pageSize")
+	page := c.Ctx.Input.Query("p")
+	field := c.Ctx.Input.Query("field")
+	value := c.Ctx.Input.Query("value")
+	sortField := c.Ctx.Input.Query("sortField")
+	sortOrder := c.Ctx.Input.Query("sortOrder")
+
 	if limit == "" || page == "" {
-		c.Data["json"] = object.GetProducts(owner)
-		c.ServeJSON()
+		products, err := object.GetProducts(owner)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(products)
 	} else {
 		limit := util.ParseInt(limit)
-		paginator := pagination.SetPaginator(c.Ctx, limit, int64(object.GetProductCount(owner, field, value)))
-		products := object.GetPaginationProducts(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		count, err := object.GetProductCount(owner, field, value)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
+		products, err := object.GetPaginationProducts(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
 		c.ResponseOk(products, paginator.Nums())
 	}
 }
 
+// GetProduct
 // @Title GetProduct
 // @Tag Product API
 // @Description get product
-// @Param   id    query    string  true        "The id of the product"
+// @Param   id     query    string  true        "The id ( owner/name ) of the product"
 // @Success 200 {object} object.Product The Response object
 // @router /get-product [get]
 func (c *ApiController) GetProduct() {
-	id := c.Input().Get("id")
+	id := c.Ctx.Input.Query("id")
 
-	c.Data["json"] = object.GetProduct(id)
-	c.ServeJSON()
+	product, err := object.GetProduct(id)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	err = object.ExtendProductWithProviders(product)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk(product)
 }
 
+// UpdateProduct
 // @Title UpdateProduct
 // @Tag Product API
 // @Description update product
-// @Param   id    query    string  true        "The id of the product"
+// @Param   id     query    string  true        "The id ( owner/name ) of the product"
 // @Param   body    body   object.Product  true        "The details of the product"
 // @Success 200 {object} controllers.Response The Response object
 // @router /update-product [post]
 func (c *ApiController) UpdateProduct() {
-	id := c.Input().Get("id")
+	id := c.Ctx.Input.Query("id")
 
 	var product object.Product
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &product)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 
 	c.Data["json"] = wrapActionResponse(object.UpdateProduct(id, &product))
 	c.ServeJSON()
 }
 
+// AddProduct
 // @Title AddProduct
 // @Tag Product API
 // @Description add product
@@ -92,13 +123,15 @@ func (c *ApiController) AddProduct() {
 	var product object.Product
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &product)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 
 	c.Data["json"] = wrapActionResponse(object.AddProduct(&product))
 	c.ServeJSON()
 }
 
+// DeleteProduct
 // @Title DeleteProduct
 // @Tag Product API
 // @Description delete product
@@ -109,42 +142,10 @@ func (c *ApiController) DeleteProduct() {
 	var product object.Product
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &product)
 	if err != nil {
-		panic(err)
-	}
-
-	c.Data["json"] = wrapActionResponse(object.DeleteProduct(&product))
-	c.ServeJSON()
-}
-
-// @Title BuyProduct
-// @Tag Product API
-// @Description buy product
-// @Param   id    query    string  true            "The id of the product"
-// @Param   providerName    query    string  true  "The name of the provider"
-// @Success 200 {object} controllers.Response The Response object
-// @router /buy-product [post]
-func (c *ApiController) BuyProduct() {
-	id := c.Input().Get("id")
-	providerName := c.Input().Get("providerName")
-	host := c.Ctx.Request.Host
-
-	userId := c.GetSessionUsername()
-	if userId == "" {
-		c.ResponseError("Please login first")
-		return
-	}
-
-	user := object.GetUser(userId)
-	if user == nil {
-		c.ResponseError(fmt.Sprintf("The user: %s doesn't exist", userId))
-		return
-	}
-
-	payUrl, err := object.BuyProduct(id, providerName, user, host)
-	if err != nil {
 		c.ResponseError(err.Error())
 		return
 	}
 
-	c.ResponseOk(payUrl)
+	c.Data["json"] = wrapActionResponse(object.DeleteProduct(&product))
+	c.ServeJSON()
 }

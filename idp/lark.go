@@ -16,26 +16,33 @@ package idp
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/nyaruka/phonenumbers"
 	"golang.org/x/oauth2"
 )
 
 type LarkIdProvider struct {
-	Client *http.Client
-	Config *oauth2.Config
+	Client     *http.Client
+	Config     *oauth2.Config
+	LarkDomain string
 }
 
-func NewLarkIdProvider(clientId string, clientSecret string, redirectUrl string) *LarkIdProvider {
+func NewLarkIdProvider(clientId string, clientSecret string, redirectUrl string, useGlobalEndpoint bool) *LarkIdProvider {
 	idp := &LarkIdProvider{}
+
+	if useGlobalEndpoint {
+		idp.LarkDomain = "https://open.larksuite.com"
+	} else {
+		idp.LarkDomain = "https://open.feishu.cn"
+	}
 
 	config := idp.getConfig(clientId, clientSecret, redirectUrl)
 	idp.Config = config
-
 	return idp
 }
 
@@ -45,11 +52,11 @@ func (idp *LarkIdProvider) SetHttpClient(client *http.Client) {
 
 // getConfig return a point of Config, which describes a typical 3-legged OAuth2 flow
 func (idp *LarkIdProvider) getConfig(clientId string, clientSecret string, redirectUrl string) *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
-		TokenURL: "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+	endpoint := oauth2.Endpoint{
+		TokenURL: idp.LarkDomain + "/open-apis/auth/v3/tenant_access_token/internal",
 	}
 
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		Scopes:       []string{},
 		Endpoint:     endpoint,
 		ClientID:     clientId,
@@ -76,18 +83,25 @@ type LarkAccessToken struct {
 	Expire            int    `json:"expire"`
 }
 
-// GetToken use code get access_token (*operation of getting code ought to be done in front)
-// get more detail via: https://docs.microsoft.com/en-us/linkedIn/shared/authentication/authorization-code-flow?context=linkedIn%2Fcontext&tabs=HTTPS
 func (idp *LarkIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	params := &struct {
 		AppID     string `json:"app_id"`
 		AppSecret string `json:"app_secret"`
 	}{idp.Config.ClientID, idp.Config.ClientSecret}
+
 	data, err := idp.postWithBody(params, idp.Config.Endpoint.TokenURL)
+	if err != nil {
+		return nil, err
+	}
 
 	appToken := &LarkAccessToken{}
-	if err = json.Unmarshal(data, appToken); err != nil || appToken.Code != 0 {
+	err = json.Unmarshal(data, appToken)
+	if err != nil {
 		return nil, err
+	}
+
+	if appToken.Code != 0 {
+		return nil, fmt.Errorf("GetToken() error, appToken.Code: %d, appToken.Msg: %s", appToken.Code, appToken.Msg)
 	}
 
 	t := &oauth2.Token{
@@ -99,7 +113,6 @@ func (idp *LarkIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	raw := make(map[string]interface{})
 	raw["code"] = code
 	t = t.WithExtra(raw)
-
 	return t, nil
 }
 
@@ -120,6 +133,7 @@ func (idp *LarkIdProvider) GetToken(code string) (*oauth2.Token, error) {
         "open_id": "ou-caecc734c2e3328a62489fe0648c4b98779515d3",
         "union_id": "on-d89jhsdhjsajkda7828enjdj328ydhhw3u43yjhdj",
         "email": "zhangsan@feishu.cn",
+        "enterprise_email": "zhangsan@company.com",
         "user_id": "5d9bdxxx",
         "mobile": "+86130002883xx",
         "tenant_key": "736588c92lxf175d",
@@ -145,6 +159,7 @@ type LarkUserInfo struct {
 		OpenId           string `json:"open_id"`
 		UnionId          string `json:"union_id"`
 		Email            string `json:"email"`
+		EnterpriseEmail  string `json:"enterprise_email"`
 		UserId           string `json:"user_id"`
 		Mobile           string `json:"mobile"`
 		TenantKey        string `json:"tenant_key"`
@@ -153,18 +168,22 @@ type LarkUserInfo struct {
 	} `json:"data"`
 }
 
-// GetUserInfo use LarkAccessToken gotten before return LinkedInUserInfo
-// get more detail via: https://docs.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin?context=linkedin/consumer/context
 func (idp *LarkIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error) {
 	body := &struct {
 		GrantType string `json:"grant_type"`
 		Code      string `json:"code"`
 	}{"authorization_code", token.Extra("code").(string)}
-	data, _ := json.Marshal(body)
-	req, err := http.NewRequest("POST", "https://open.feishu.cn/open-apis/authen/v1/access_token", strings.NewReader(string(data)))
+
+	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
+
+	req, err := http.NewRequest("POST", idp.LarkDomain+"/open-apis/authen/v1/access_token", strings.NewReader(string(data)))
+	if err != nil {
+		return nil, err
+	}
+
 	req.Header.Set("Content-Type", "application/json;charset=UTF-8")
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 
@@ -172,25 +191,54 @@ func (idp *LarkIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	defer resp.Body.Close()
-	data, err = ioutil.ReadAll(resp.Body)
+	data, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
 	var larkUserInfo LarkUserInfo
-	if err = json.Unmarshal(data, &larkUserInfo); err != nil {
+	err = json.Unmarshal(data, &larkUserInfo)
+	if err != nil {
 		return nil, err
+	}
+
+	// Use enterprise_email as fallback when email is empty
+	email := larkUserInfo.Data.Email
+	if email == "" {
+		email = larkUserInfo.Data.EnterpriseEmail
+	}
+
+	// Use fallback mechanism for username: UserId -> UnionId -> OpenId
+	username := larkUserInfo.Data.UserId
+	if username == "" {
+		username = larkUserInfo.Data.UnionId
+	}
+	if username == "" {
+		username = larkUserInfo.Data.OpenId
+	}
+
+	var phoneNumber string
+	var countryCode string
+	if len(larkUserInfo.Data.Mobile) != 0 {
+		phoneNumberParsed, err := phonenumbers.Parse(larkUserInfo.Data.Mobile, "")
+		if err != nil {
+			return nil, err
+		}
+		countryCode = phonenumbers.GetRegionCodeForNumber(phoneNumberParsed)
+		phoneNumber = fmt.Sprintf("%d", phoneNumberParsed.GetNationalNumber())
 	}
 
 	userInfo := UserInfo{
 		Id:          larkUserInfo.Data.OpenId,
-		DisplayName: larkUserInfo.Data.EnName,
-		Username:    larkUserInfo.Data.Name,
-		Email:       larkUserInfo.Data.Email,
+		DisplayName: larkUserInfo.Data.Name,
+		Username:    username,
+		Email:       email,
 		AvatarUrl:   larkUserInfo.Data.AvatarUrl,
+		Phone:       phoneNumber,
+		CountryCode: countryCode,
 	}
-
 	return &userInfo, nil
 }
 
@@ -199,21 +247,23 @@ func (idp *LarkIdProvider) postWithBody(body interface{}, url string) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
+
 	r := strings.NewReader(string(bs))
 	resp, err := idp.Client.Post(url, "application/json;charset=UTF-8", r)
 	if err != nil {
 		return nil, err
 	}
-	data, err := ioutil.ReadAll(resp.Body)
+
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
+
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
 			return
 		}
 	}(resp.Body)
-
 	return data, nil
 }

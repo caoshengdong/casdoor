@@ -23,7 +23,10 @@ import (
 )
 
 func FileExist(path string) bool {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false
+	} else if err != nil {
 		return false
 	}
 	return true
@@ -33,14 +36,21 @@ func GetPath(path string) string {
 	return filepath.Dir(path)
 }
 
-func EnsureFileFolderExists(path string) {
-	p := GetPath(path)
-	if !FileExist(p) {
-		err := os.MkdirAll(p, os.ModePerm)
-		if err != nil {
-			panic(err)
+func ListFiles(path string) []string {
+	res := []string{}
+
+	files, err := os.ReadDir(path)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, f := range files {
+		if !f.IsDir() {
+			res = append(res, f.Name())
 		}
 	}
+
+	return res
 }
 
 func RemoveExt(filename string) string {
@@ -54,11 +64,22 @@ func UrlJoin(base string, path string) string {
 
 func GetUrlPath(urlString string) string {
 	u, _ := url.Parse(urlString)
+	if u == nil {
+		return ""
+	}
 	return u.Path
 }
 
 func GetUrlHost(urlString string) string {
-	u, _ := url.Parse(urlString)
+	if urlString == "" {
+		return ""
+	}
+
+	u, err := url.Parse(urlString)
+	if err != nil {
+		return err.Error()
+	}
+
 	return fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 }
 

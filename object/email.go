@@ -16,29 +16,50 @@
 
 package object
 
-import "github.com/go-gomail/gomail"
+import "github.com/casdoor/casdoor/email"
 
-func SendEmail(provider *Provider, title string, content string, dest string, sender string) error {
-	dialer := gomail.NewDialer(provider.Host, provider.Port, provider.ClientId, provider.ClientSecret)
-
-	message := gomail.NewMessage()
-	message.SetAddressHeader("From", provider.ClientId, sender)
-	message.SetHeader("To", dest)
-	message.SetHeader("Subject", title)
-	message.SetBody("text/html", content)
-
-	return dialer.DialAndSend(message)
-}
-
-// DailSmtpServer Dail Smtp server
-func DailSmtpServer(provider *Provider) error {
-	dialer := gomail.NewDialer(provider.Host, provider.Port, provider.ClientId, provider.ClientSecret)
-
-	sender, err := dialer.Dial()
+// TestSmtpServer Test the SMTP server
+func TestSmtpServer(provider *Provider) error {
+	sslMode := getSslMode(provider)
+	smtpEmailProvider := email.NewSmtpEmailProvider(provider.ClientId, provider.ClientSecret, provider.Host, provider.Port, provider.Type, sslMode, provider.EnableProxy)
+	sender, err := smtpEmailProvider.Dialer.Dial()
 	if err != nil {
 		return err
 	}
 	defer sender.Close()
 
 	return nil
+}
+
+func SendEmail(provider *Provider, title string, content string, dest []string, sender string) error {
+	sslMode := getSslMode(provider)
+	emailProvider := email.GetEmailProvider(provider.Type, provider.ClientId, provider.ClientSecret, provider.Host, provider.Port, sslMode, provider.Endpoint, provider.Method, provider.HttpHeaders, provider.UserMapping, provider.IssuerUrl, provider.EnableProxy)
+
+	fromAddress := provider.ClientId2
+	if fromAddress == "" {
+		fromAddress = provider.ClientId
+	}
+
+	fromName := provider.ClientSecret2
+	if fromName == "" {
+		fromName = sender
+	}
+
+	return emailProvider.Send(fromAddress, fromName, dest, title, content)
+}
+
+// getSslMode returns the SSL mode for the provider, with backward compatibility for DisableSsl
+func getSslMode(provider *Provider) string {
+	// If SslMode is set, use it
+	if provider.SslMode != "" {
+		return provider.SslMode
+	}
+
+	// Backward compatibility: convert DisableSsl to SslMode
+	if provider.DisableSsl {
+		return "Disable"
+	}
+
+	// Default to "Auto" for new configurations or when DisableSsl is false
+	return "Auto"
 }

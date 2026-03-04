@@ -21,45 +21,65 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/astaxie/beego"
+	"github.com/beego/beego/v2/server/web"
 )
+
+func init() {
+	// this array contains the beego configuration items that may be modified via env
+	presetConfigItems := []string{"httpport", "appname"}
+	for _, key := range presetConfigItems {
+		if value, ok := os.LookupEnv(key); ok {
+			err := web.AppConfig.Set(key, value)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+}
 
 func GetConfigString(key string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
 	}
-	return beego.AppConfig.String(key)
+
+	res, _ := web.AppConfig.String(key)
+	if res == "" {
+		if key == "staticBaseUrl" {
+			res = "https://cdn.casbin.org"
+		} else if key == "logConfig" {
+			appname, _ := web.AppConfig.String("appname")
+			res = fmt.Sprintf("{\"filename\": \"logs/%s.log\", \"maxdays\":99999, \"perm\":\"0770\"}", appname)
+		}
+	}
+
+	return res
 }
 
-func GetConfigBool(key string) (bool, error) {
+func GetConfigBool(key string) bool {
 	value := GetConfigString(key)
 	if value == "true" {
-		return true, nil
-	} else if value == "false" {
-		return false, nil
+		return true
+	} else {
+		return false
 	}
-	return false, fmt.Errorf("value %s cannot be converted into bool", value)
 }
 
 func GetConfigInt64(key string) (int64, error) {
 	value := GetConfigString(key)
 	num, err := strconv.ParseInt(value, 10, 64)
-	return num, err
-}
-
-func init() {
-	//this array contains the beego configuration items that may be modified via env
-	var presetConfigItems = []string{"httpport", "appname"}
-	for _, key := range presetConfigItems {
-		if value, ok := os.LookupEnv(key); ok {
-			beego.AppConfig.Set(key, value)
-		}
+	if err != nil {
+		return 0, fmt.Errorf("GetConfigInt64(%s) error, %s", key, err.Error())
 	}
+
+	return num, nil
 }
 
-func GetBeegoConfDataSourceName() string {
+func GetConfigDataSourceName() string {
 	dataSourceName := GetConfigString("dataSourceName")
+	return ReplaceDataSourceNameByDocker(dataSourceName)
+}
 
+func ReplaceDataSourceNameByDocker(dataSourceName string) string {
 	runningInDocker := os.Getenv("RUNNING_IN_DOCKER")
 	if runningInDocker == "true" {
 		// https://stackoverflow.com/questions/48546124/what-is-linux-equivalent-of-host-docker-internal
@@ -69,6 +89,29 @@ func GetBeegoConfDataSourceName() string {
 			dataSourceName = strings.ReplaceAll(dataSourceName, "localhost", "host.docker.internal")
 		}
 	}
-
 	return dataSourceName
+}
+
+func GetLanguage(language string) string {
+	if language == "" || language == "*" {
+		return "en"
+	}
+
+	if len(language) != 2 || language == "nu" {
+		return "en"
+	} else {
+		return language
+	}
+}
+
+func IsDemoMode() bool {
+	return strings.ToLower(GetConfigString("isDemoMode")) == "true"
+}
+
+func GetConfigBatchSize() int {
+	res, err := strconv.Atoi(GetConfigString("batchSize"))
+	if err != nil {
+		res = 100
+	}
+	return res
 }

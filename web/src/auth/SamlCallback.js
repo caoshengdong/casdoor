@@ -20,6 +20,7 @@ import * as Util from "./Util";
 import * as Setting from "../Setting";
 import i18next from "i18next";
 import {authConfig} from "./Auth";
+import {renderLoginPanel} from "../Setting";
 
 class SamlCallback extends React.Component {
   constructor(props) {
@@ -47,20 +48,23 @@ class SamlCallback extends React.Component {
 
   UNSAFE_componentWillMount() {
     const params = new URLSearchParams(this.props.location.search);
-    let relayState = params.get("relayState");
-    let samlResponse = params.get("samlResponse");
+    const relayState = params.get("relayState");
+    const samlResponse = params.get("samlResponse");
+
     const messages = atob(relayState).split("&");
-    const clientId = messages[0];
-    const applicationName = messages[1] === "null" ? "app-built-in" : messages[1];
+    const clientId = messages[0] === "" ? "" : messages[0];
+    const application = messages[0] === "" ? "app-built-in" : "";
+    const state = messages[1];
     const providerName = messages[2];
     const redirectUri = messages[3];
     const responseType = this.getResponseType(redirectUri);
 
     const body = {
       type: responseType,
-      application: applicationName,
+      clientId: clientId,
       provider: providerName,
-      state: applicationName,
+      state: state,
+      application: application,
       redirectUri: `${window.location.origin}/callback`,
       method: "signup",
       relayState: relayState,
@@ -71,20 +75,33 @@ class SamlCallback extends React.Component {
     if (clientId === null || clientId === "") {
       param = "";
     } else {
-      param = `?clientId=${clientId}&responseType=${responseType}&redirectUri=${redirectUri}&scope=read&state=${applicationName}`;
+      param = `?clientId=${clientId}&responseType=${responseType}&redirectUri=${redirectUri}&scope=read&state=${state}`;
     }
 
     AuthBackend.loginWithSaml(body, param)
       .then((res) => {
         if (res.status === "ok") {
           const responseType = this.getResponseType(redirectUri);
-          if (responseType === "login") {
-            Util.showMessage("success", "Logged in successfully");
-            Setting.goToLink("/");
-          } else if (responseType === "code") {
-            const code = res.data;
-            Setting.goToLink(`${redirectUri}?code=${code}&state=${applicationName}`);
-          }
+          const handleLogin = (res2) => {
+            if (responseType === "login") {
+              Setting.showMessage("success", "Logged in successfully");
+              Setting.goToLink("/");
+            } else if (responseType === "code") {
+              const code = res2.data;
+              Setting.goToLink(`${redirectUri}?code=${code}&state=${state}`);
+            }
+          };
+          Setting.checkLoginMfa(res, body, {
+            clientId: clientId,
+            responseType: responseType,
+            redirectUri: messages[3],
+            state: state,
+            nonce: "",
+            scope: "read",
+            challengeMethod: "",
+            codeChallenge: "",
+            type: "code",
+          }, handleLogin, this);
         } else {
           this.setState({
             msg: res.msg,
@@ -94,8 +111,13 @@ class SamlCallback extends React.Component {
   }
 
   render() {
+    if (this.state.getVerifyTotp !== undefined) {
+      const application = Setting.getApplicationObj(this);
+      return renderLoginPanel(application, this.state.getVerifyTotp, this, window.location.origin);
+    }
+
     return (
-      <div style={{textAlign: "center"}}>
+      <div style={{display: "flex", justifyContent: "center", alignItems: "center"}}>
         {
           (this.state.msg === null) ? (
             <Spin size="large" tip={i18next.t("login:Signing in...")} style={{paddingTop: "10%"}} />

@@ -19,14 +19,26 @@ import * as WebhookBackend from "./backend/WebhookBackend";
 import * as OrganizationBackend from "./backend/OrganizationBackend";
 import * as Setting from "./Setting";
 import i18next from "i18next";
-import WebhookHeaderTable from "./WebhookHeaderTable";
+import WebhookHeaderTable from "./table/WebhookHeaderTable";
 
-import {Controlled as CodeMirror} from "react-codemirror2";
-import "codemirror/lib/codemirror.css";
-require("codemirror/theme/material-darker.css");
-require("codemirror/mode/javascript/javascript");
+import Editor from "./common/Editor";
 
 const {Option} = Select;
+
+const applicationTemplate = {
+  owner: "admin", // this.props.account.applicationName,
+  name: "application_123",
+  organization: "built-in",
+  createdTime: "2022-01-01T01:03:42+08:00",
+  displayName: "New Application - 123",
+  logo: `${Setting.StaticBaseUrl}/img/casdoor-logo_1185x256.png`,
+  enablePassword: true,
+  enableSignUp: true,
+  disableSignin: false,
+  enableSigninSession: false,
+  enableCodeSignin: false,
+  enableSamlCompress: false,
+};
 
 const previewTemplate = {
   "id": 9078,
@@ -37,9 +49,10 @@ const previewTemplate = {
   "clientIp": "159.89.126.192",
   "user": "admin",
   "method": "POST",
-  "requestUri": "/api/login",
+  "requestUri": "/api/add-application",
   "action": "login",
   "isTriggered": false,
+  "object": JSON.stringify(applicationTemplate),
 };
 
 const userTemplate = {
@@ -47,9 +60,10 @@ const userTemplate = {
   "name": "admin",
   "createdTime": "2020-07-16T21:46:52+08:00",
   "updatedTime": "",
+  "deletedTime": "",
   "id": "9eb20f79-3bb5-4e74-99ac-39e3b9a171e8",
   "type": "normal-user",
-  "password": "123",
+  "password": "***",
   "passwordSalt": "",
   "displayName": "Admin",
   "avatar": "https://cdn.casbin.com/usercontent/admin/avatar/1596241359.png",
@@ -64,7 +78,6 @@ const userTemplate = {
   "ranking": 10,
   "isOnline": false,
   "isAdmin": true,
-  "isGlobalAdmin": false,
   "isForbidden": false,
   "isDeleted": false,
   "signupApplication": "app-casnode",
@@ -84,8 +97,8 @@ const userTemplate = {
     "phoneVerifiedTime": "",
     "renameQuota": "3",
     "tagline": "",
-    "website": ""
-  }
+    "website": "",
+  },
 };
 
 class WebhookEditPage extends React.Component {
@@ -107,9 +120,14 @@ class WebhookEditPage extends React.Component {
 
   getWebhook() {
     WebhookBackend.getWebhook("admin", this.state.webhookName)
-      .then((webhook) => {
+      .then((res) => {
+        if (res.data === null) {
+          this.props.history.push("/404");
+          return;
+        }
+
         this.setState({
-          webhook: webhook,
+          webhook: res.data,
         });
       });
   }
@@ -118,7 +136,7 @@ class WebhookEditPage extends React.Component {
     OrganizationBackend.getOrganizations("admin")
       .then((res) => {
         this.setState({
-          organizations: (res.msg === undefined) ? res : [],
+          organizations: res.data || [],
         });
       });
   }
@@ -127,13 +145,16 @@ class WebhookEditPage extends React.Component {
     if (["port"].includes(key)) {
       value = Setting.myParseInt(value);
     }
+    if (key === "objectFields") {
+      value = value.includes("All") ? ["All"] : value;
+    }
     return value;
   }
 
   updateWebhookField(key, value) {
     value = this.parseWebhookField(key, value);
 
-    let webhook = this.state.webhook;
+    const webhook = this.state.webhook;
     webhook[key] = value;
     this.setState({
       webhook: webhook,
@@ -141,9 +162,18 @@ class WebhookEditPage extends React.Component {
   }
 
   renderWebhook() {
-    let preview = Setting.deepCopy(previewTemplate);
+    const preview = Setting.deepCopy(previewTemplate);
     if (this.state.webhook.isUserExtended) {
-      preview["extendedUser"] = userTemplate;
+      if (this.state.webhook.tokenFields && this.state.webhook.tokenFields.length !== 0) {
+        const extendedUser = {};
+        this.state.webhook.tokenFields.forEach(field => {
+          const fieldTrans = field.replace(field[0], field[0].toLowerCase());
+          extendedUser[fieldTrans] = userTemplate[fieldTrans];
+        });
+        preview["extendedUser"] = extendedUser;
+      } else {
+        preview["extendedUser"] = userTemplate;
+      }
     }
     const previewText = JSON.stringify(preview, null, 2);
 
@@ -155,13 +185,13 @@ class WebhookEditPage extends React.Component {
           <Button style={{marginLeft: "20px"}} type="primary" onClick={() => this.submitWebhookEdit(true)}>{i18next.t("general:Save & Exit")}</Button>
           {this.state.mode === "add" ? <Button style={{marginLeft: "20px"}} onClick={() => this.deleteWebhook()}>{i18next.t("general:Cancel")}</Button> : null}
         </div>
-      } style={(Setting.isMobile())? {margin: "5px"}:{}} type="inner">
+      } style={(Setting.isMobile()) ? {margin: "5px"} : {}} type="inner">
         <Row style={{marginTop: "10px"}} >
           <Col style={{marginTop: "5px"}} span={(Setting.isMobile()) ? 22 : 2}>
             {Setting.getLabel(i18next.t("general:Organization"), i18next.t("general:Organization - Tooltip"))} :
           </Col>
           <Col span={22} >
-            <Select virtual={false} style={{width: "100%"}} value={this.state.webhook.organization} onChange={(value => {this.updateWebhookField("organization", value);})}>
+            <Select virtual={false} style={{width: "100%"}} disabled={!Setting.isAdminUser(this.props.account)} value={this.state.webhook.organization} onChange={(value => {this.updateWebhookField("organization", value);})}>
               {
                 this.state.organizations.map((organization, index) => <Option key={index} value={organization.name}>{organization.name}</Option>)
               }
@@ -180,7 +210,7 @@ class WebhookEditPage extends React.Component {
         </Row>
         <Row style={{marginTop: "20px"}} >
           <Col style={{marginTop: "5px"}} span={(Setting.isMobile()) ? 22 : 2}>
-            {Setting.getLabel(i18next.t("webhook:URL"), i18next.t("webhook:URL - Tooltip"))} :
+            {Setting.getLabel(i18next.t("general:URL"), i18next.t("general:URL - Tooltip"))} :
           </Col>
           <Col span={22} >
             <Input prefix={<LinkOutlined />} value={this.state.webhook.url} onChange={e => {
@@ -190,7 +220,7 @@ class WebhookEditPage extends React.Component {
         </Row>
         <Row style={{marginTop: "20px"}} >
           <Col style={{marginTop: "5px"}} span={(Setting.isMobile()) ? 22 : 2}>
-            {Setting.getLabel(i18next.t("webhook:Method"), i18next.t("webhook:Method - Tooltip"))} :
+            {Setting.getLabel(i18next.t("general:Method"), i18next.t("provider:Method - Tooltip"))} :
           </Col>
           <Col span={22} >
             <Select virtual={false} style={{width: "100%"}} value={this.state.webhook.method} onChange={(value => {this.updateWebhookField("method", value);})}>
@@ -237,19 +267,30 @@ class WebhookEditPage extends React.Component {
             {Setting.getLabel(i18next.t("webhook:Events"), i18next.t("webhook:Events - Tooltip"))} :
           </Col>
           <Col span={22} >
-            <Select virtual={false} mode="tags" style={{width: "100%"}}
+            <Select virtual={false} mode="multiple" style={{width: "100%"}}
               value={this.state.webhook.events}
               onChange={value => {
                 this.updateWebhookField("events", value);
               }} >
               {
-                (
-                  ["signup", "login", "logout", "update-user"].map((option, index) => {
-                    return (
-                      <Option key={option} value={option}>{option}</Option>
-                    );
-                  })
-                )
+                Setting.getApiPaths().map((option, index) => {
+                  return (
+                    <Option key={option} value={option}>{option}</Option>
+                  );
+                })
+              }
+            </Select>
+          </Col>
+        </Row>
+        <Row style={{marginTop: "20px"}} >
+          <Col style={{marginTop: "5px"}} span={(Setting.isMobile()) ? 22 : 2}>
+            {Setting.getLabel(i18next.t("webhook:Object fields"), i18next.t("webhook:Object fields - Tooltip"))} :
+          </Col>
+          <Col span={22} >
+            <Select virtual={false} mode="tags" showSearch style={{width: "100%"}} value={this.state.webhook.objectFields} onChange={(value => {this.updateWebhookField("objectFields", value);})}>
+              <Option key="All" value="All">{i18next.t("general:All")}</Option>
+              {
+                ["owner", "name", "createdTime", "updatedTime", "deletedTime", "id", "displayName"].map((item, index) => <Option key={index} value={item}>{item}</Option>)
               }
             </Select>
           </Col>
@@ -266,16 +307,34 @@ class WebhookEditPage extends React.Component {
         </Row>
         <Row style={{marginTop: "20px"}} >
           <Col style={{marginTop: "5px"}} span={(Setting.isMobile()) ? 22 : 2}>
+            {Setting.getLabel(i18next.t("webhook:Extended user fields"), i18next.t("webhook:Extended user fields - Tooltip"))} :
+          </Col>
+          <Col span={22} >
+            <Select virtual={false} mode="tags" showSearch style={{width: "100%"}} value={this.state.webhook.tokenFields} onChange={(value => {this.updateWebhookField("tokenFields", value);})}>
+              {
+                Setting.getUserCommonFields().map((item, index) => <Option key={index} value={item}>{item}</Option>)
+              }
+            </Select>
+          </Col>
+        </Row>
+        <Row style={{marginTop: "20px"}} >
+          <Col style={{marginTop: "5px"}} span={(Setting.isMobile()) ? 22 : 2}>
             {Setting.getLabel(i18next.t("general:Preview"), i18next.t("general:Preview - Tooltip"))} :
           </Col>
           <Col span={22} >
             <div style={{width: "900px", height: "300px"}} >
-              <CodeMirror
-                value={previewText}
-                options={{mode: "javascript", theme: "material-darker"}}
-                onBeforeChange={(editor, data, value) => {}}
-              />
+              <Editor value={previewText} lang="js" fillHeight readOnly dark />
             </div>
+          </Col>
+        </Row>
+        <Row style={{marginTop: "20px"}} >
+          <Col style={{marginTop: "5px"}} span={(Setting.isMobile()) ? 19 : 2}>
+            {Setting.getLabel(i18next.t("webhook:Single org only"), i18next.t("webhook:Single org only - Tooltip"))} :
+          </Col>
+          <Col span={1} >
+            <Switch checked={this.state.webhook.singleOrgOnly} onChange={checked => {
+              this.updateWebhookField("singleOrgOnly", checked);
+            }} />
           </Col>
         </Row>
         <Row style={{marginTop: "20px"}} >
@@ -292,38 +351,42 @@ class WebhookEditPage extends React.Component {
     );
   }
 
-  submitWebhookEdit(willExist) {
-    let webhook = Setting.deepCopy(this.state.webhook);
+  submitWebhookEdit(exitAfterSave) {
+    const webhook = Setting.deepCopy(this.state.webhook);
     WebhookBackend.updateWebhook(this.state.webhook.owner, this.state.webhookName, webhook)
       .then((res) => {
-        if (res.msg === "") {
-          Setting.showMessage("success", "Successfully saved");
+        if (res.status === "ok") {
+          Setting.showMessage("success", i18next.t("general:Successfully saved"));
           this.setState({
             webhookName: this.state.webhook.name,
           });
 
-          if (willExist) {
+          if (exitAfterSave) {
             this.props.history.push("/webhooks");
           } else {
             this.props.history.push(`/webhooks/${this.state.webhook.name}`);
           }
         } else {
-          Setting.showMessage("error", res.msg);
+          Setting.showMessage("error", `${i18next.t("general:Failed to save")}: ${res.msg}`);
           this.updateWebhookField("name", this.state.webhookName);
         }
       })
       .catch(error => {
-        Setting.showMessage("error", `Failed to connect to server: ${error}`);
+        Setting.showMessage("error", `${i18next.t("general:Failed to connect to server")}: ${error}`);
       });
   }
 
   deleteWebhook() {
     WebhookBackend.deleteWebhook(this.state.webhook)
-      .then(() => {
-        this.props.history.push("/webhooks");
+      .then((res) => {
+        if (res.status === "ok") {
+          this.props.history.push("/webhooks");
+        } else {
+          Setting.showMessage("error", `${i18next.t("general:Failed to delete")}: ${res.msg}`);
+        }
       })
       .catch(error => {
-        Setting.showMessage("error", `Webhook failed to delete: ${error}`);
+        Setting.showMessage("error", `${i18next.t("general:Failed to connect to server")}: ${error}`);
       });
   }
 

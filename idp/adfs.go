@@ -15,11 +15,10 @@
 package idp
 
 import (
-	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -59,12 +58,12 @@ func (idp *AdfsIdProvider) SetHttpClient(client *http.Client) {
 }
 
 func (idp *AdfsIdProvider) getConfig(hostUrl string) *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
+	endpoint := oauth2.Endpoint{
 		AuthURL:  fmt.Sprintf("%s/adfs/oauth2/authorize", hostUrl),
 		TokenURL: fmt.Sprintf("%s/adfs/oauth2/token", hostUrl),
 	}
 
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		Endpoint: endpoint,
 	}
 
@@ -77,18 +76,22 @@ type AdfsToken struct {
 	ErrMsg    string `json:"error_description"`
 }
 
+// GetToken
 // get more detail via: https://docs.microsoft.com/en-us/windows-server/identity/ad-fs/overview/ad-fs-openid-connect-oauth-flows-scenarios#request-an-access-token
 func (idp *AdfsIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	payload := url.Values{}
 	payload.Set("code", code)
 	payload.Set("grant_type", "authorization_code")
 	payload.Set("client_id", idp.Config.ClientID)
+	payload.Set("client_secret", idp.Config.ClientSecret)
 	payload.Set("redirect_uri", idp.Config.RedirectURL)
+
 	resp, err := idp.Client.PostForm(idp.Config.Endpoint.TokenURL, payload)
 	if err != nil {
 		return nil, err
 	}
-	data, err := ioutil.ReadAll(resp.Body)
+
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -96,10 +99,10 @@ func (idp *AdfsIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	pToken := &AdfsToken{}
 	err = json.Unmarshal(data, pToken)
 	if err != nil {
-		return nil, fmt.Errorf("fail to unmarshal token response: %s", err.Error())
+		return nil, err
 	}
 	if pToken.ErrMsg != "" {
-		return nil, fmt.Errorf("pToken.Errmsg = %s", pToken.ErrMsg)
+		return nil, fmt.Errorf(pToken.ErrMsg)
 	}
 
 	token := &oauth2.Token{
@@ -109,6 +112,7 @@ func (idp *AdfsIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	return token, nil
 }
 
+// GetUserInfo
 // Since the userinfo endpoint of ADFS only returns sub,
 // the id_token is used to resolve the userinfo
 func (idp *AdfsIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error) {
@@ -116,16 +120,34 @@ func (idp *AdfsIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	keyset, err := jwk.Parse(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
+	var respKeys struct {
+		Keys []interface{} `json:"keys"`
+	}
+
+	if err := json.Unmarshal(body, &respKeys); err != nil {
+		return nil, err
+	}
+
+	respKey, err := json.Marshal(&(respKeys.Keys[0]))
+	if err != nil {
+		return nil, err
+	}
+
+	keyset, err := jwk.ParseKey(respKey)
+	if err != nil {
+		return nil, err
+	}
+
 	tokenSrc := []byte(token.AccessToken)
-	publicKey, _ := keyset.Keys[0].Materialize()
-	id_token, _ := jwt.Parse(bytes.NewReader(tokenSrc), jwt.WithVerify(jwa.RS256, publicKey))
-	sid, _ := id_token.Get("sid")
-	upn, _ := id_token.Get("upn")
-	name, _ := id_token.Get("unique_name")
+	publicKey, _ := keyset.PublicKey()
+	idToken, _ := jwt.Parse(tokenSrc, jwt.WithVerify(jwa.RS256, publicKey))
+	sid, _ := idToken.Get("sid")
+	upn, _ := idToken.Get("upn")
+	name, _ := idToken.Get("unique_name")
 	userinfo := &UserInfo{
 		Id:          sid.(string),
 		Username:    name.(string),

@@ -19,42 +19,69 @@ import (
 	"io"
 	"mime/multipart"
 	"os"
+	"path/filepath"
 
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/util"
 )
 
-func saveFile(path string, file *multipart.File) {
-	f, err := os.Create(path)
+func saveFile(path string, file *multipart.File) (err error) {
+	f, err := os.Create(filepath.Clean(path))
 	if err != nil {
-		panic(err)
+		return err
 	}
 	defer f.Close()
 
 	_, err = io.Copy(f, *file)
 	if err != nil {
-		panic(err)
+		return err
 	}
+	return nil
 }
 
 func (c *ApiController) UploadUsers() {
+	if !c.IsAdmin() {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
+	userObj := c.getCurrentUser()
+	if userObj == nil {
+		c.ResponseError(c.T("auth:Unauthorized operation"))
+		return
+	}
+
 	userId := c.GetSessionUsername()
-	owner, user := util.GetOwnerAndNameFromId(userId)
+	owner, user, err := util.GetOwnerAndNameFromIdWithError(userId)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
 
 	file, header, err := c.Ctx.Request.FormFile("file")
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
+
 	fileId := fmt.Sprintf("%s_%s_%s", owner, user, util.RemoveExt(header.Filename))
-
 	path := util.GetUploadXlsxPath(fileId)
-	util.EnsureFileFolderExists(path)
-	saveFile(path, &file)
+	defer os.Remove(path)
+	err = saveFile(path, &file)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
 
-	affected := object.UploadUsers(owner, fileId)
+	affected, err := object.UploadUsers(owner, path, userObj, c.GetAcceptLanguage())
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
 	if affected {
 		c.ResponseOk()
 	} else {
-		c.ResponseError("Failed to import users")
+		c.ResponseError(c.T("general:Failed to import users"))
 	}
 }

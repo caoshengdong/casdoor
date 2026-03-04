@@ -17,7 +17,7 @@ package controllers
 import (
 	"encoding/json"
 
-	"github.com/astaxie/beego/utils/pagination"
+	"github.com/beego/beego/v2/core/utils/pagination"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/util"
 )
@@ -30,57 +30,83 @@ import (
 // @Success 200 {array} object.Role The Response object
 // @router /get-roles [get]
 func (c *ApiController) GetRoles() {
-	owner := c.Input().Get("owner")
-	limit := c.Input().Get("pageSize")
-	page := c.Input().Get("p")
-	field := c.Input().Get("field")
-	value := c.Input().Get("value")
-	sortField := c.Input().Get("sortField")
-	sortOrder := c.Input().Get("sortOrder")
+	owner := c.Ctx.Input.Query("owner")
+	limit := c.Ctx.Input.Query("pageSize")
+	page := c.Ctx.Input.Query("p")
+	field := c.Ctx.Input.Query("field")
+	value := c.Ctx.Input.Query("value")
+	sortField := c.Ctx.Input.Query("sortField")
+	sortOrder := c.Ctx.Input.Query("sortOrder")
+
 	if limit == "" || page == "" {
-		c.Data["json"] = object.GetRoles(owner)
-		c.ServeJSON()
+		roles, err := object.GetRoles(owner)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(roles)
 	} else {
 		limit := util.ParseInt(limit)
-		paginator := pagination.SetPaginator(c.Ctx, limit, int64(object.GetRoleCount(owner, field, value)))
-		roles := object.GetPaginationRoles(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		count, err := object.GetRoleCount(owner, field, value)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
+		roles, err := object.GetPaginationRoles(owner, paginator.Offset(), limit, field, value, sortField, sortOrder)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
 		c.ResponseOk(roles, paginator.Nums())
 	}
 }
 
+// GetRole
 // @Title GetRole
 // @Tag Role API
 // @Description get role
-// @Param   id    query    string  true        "The id of the role"
+// @Param   id     query    string  true        "The id ( owner/name ) of the role"
 // @Success 200 {object} object.Role The Response object
 // @router /get-role [get]
 func (c *ApiController) GetRole() {
-	id := c.Input().Get("id")
+	id := c.Ctx.Input.Query("id")
 
-	c.Data["json"] = object.GetRole(id)
-	c.ServeJSON()
+	role, err := object.GetRole(id)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	c.ResponseOk(role)
 }
 
+// UpdateRole
 // @Title UpdateRole
 // @Tag Role API
 // @Description update role
-// @Param   id    query    string  true        "The id of the role"
+// @Param   id     query    string  true        "The id ( owner/name ) of the role"
 // @Param   body    body   object.Role  true        "The details of the role"
 // @Success 200 {object} controllers.Response The Response object
 // @router /update-role [post]
 func (c *ApiController) UpdateRole() {
-	id := c.Input().Get("id")
+	id := c.Ctx.Input.Query("id")
 
 	var role object.Role
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &role)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 
 	c.Data["json"] = wrapActionResponse(object.UpdateRole(id, &role))
 	c.ServeJSON()
 }
 
+// AddRole
 // @Title AddRole
 // @Tag Role API
 // @Description add role
@@ -91,13 +117,15 @@ func (c *ApiController) AddRole() {
 	var role object.Role
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &role)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 
 	c.Data["json"] = wrapActionResponse(object.AddRole(&role))
 	c.ServeJSON()
 }
 
+// DeleteRole
 // @Title DeleteRole
 // @Tag Role API
 // @Description delete role
@@ -108,7 +136,8 @@ func (c *ApiController) DeleteRole() {
 	var role object.Role
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &role)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 
 	c.Data["json"] = wrapActionResponse(object.DeleteRole(&role))

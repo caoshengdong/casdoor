@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -48,11 +47,11 @@ func (idp *WeiBoIdProvider) SetHttpClient(client *http.Client) {
 
 // getConfig return a point of Config, which describes a typical 3-legged OAuth2 flow
 func (idp *WeiBoIdProvider) getConfig(clientId string, clientSecret string, redirectUrl string) *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
+	endpoint := oauth2.Endpoint{
 		TokenURL: "https://api.weibo.com/oauth2/access_token",
 	}
 
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		Scopes:       []string{""},
 		Endpoint:     endpoint,
 		ClientID:     clientId,
@@ -92,7 +91,7 @@ func (idp *WeiBoIdProvider) GetToken(code string) (*oauth2.Token, error) {
 			return
 		}
 	}(resp.Body)
-	bs, err := ioutil.ReadAll(resp.Body)
+	bs, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}

@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -49,11 +48,11 @@ func (idp *GiteeIdProvider) SetHttpClient(client *http.Client) {
 
 // getConfig return a point of Config, which describes a typical 3-legged OAuth2 flow
 func (idp *GiteeIdProvider) getConfig(clientId string, clientSecret string, redirectUrl string) *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
+	endpoint := oauth2.Endpoint{
 		TokenURL: "https://gitee.com/oauth/token",
 	}
 
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		Scopes: []string{"user_info emails"},
 
 		Endpoint:     endpoint,
@@ -93,7 +92,7 @@ func (idp *GiteeIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	rbs, err := ioutil.ReadAll(resp.Body)
+	rbs, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +132,7 @@ func (idp *GiteeIdProvider) GetToken(code string) (*oauth2.Token, error) {
     "type": "User",
     "blog": null,
     "weibo": null,
-    "bio": "个人博客：https://gitee.com/xxx/xxx/pages",
+    "bio": "bio",
     "public_repos": 2,
     "public_gists": 0,
     "followers": 0,

@@ -14,55 +14,106 @@
 
 import React from "react";
 import {Link} from "react-router-dom";
-import {Button, Popconfirm, Switch, Table} from "antd";
+import {Button, Switch, Table} from "antd";
 import moment from "moment";
 import * as Setting from "./Setting";
 import * as OrganizationBackend from "./backend/OrganizationBackend";
 import i18next from "i18next";
 import BaseListPage from "./BaseListPage";
+import PopconfirmModal from "./common/modal/PopconfirmModal";
 
 class OrganizationListPage extends BaseListPage {
   newOrganization() {
     const randomName = Setting.getRandomName();
+    const DefaultMfaRememberInHours = 12;
     return {
       owner: "admin", // this.props.account.organizationname,
       name: `organization_${randomName}`,
       createdTime: moment().format(),
       displayName: `New Organization - ${randomName}`,
       websiteUrl: "https://door.casdoor.com",
-      favicon: "https://cdn.casdoor.com/static/favicon.png",
-      passwordType: "plain",
+      favicon: `${Setting.StaticBaseUrl}/img/favicon.png`,
+      passwordType: "bcrypt",
       PasswordSalt: "",
-      phonePrefix: "86",
-      defaultAvatar: "https://casbin.org/img/casbin.svg",
+      passwordOptions: ["AtLeast6"],
+      passwordObfuscatorType: "Plain",
+      passwordObfuscatorKey: "",
+      passwordExpireDays: 0,
+      countryCodes: ["US"],
+      defaultAvatar: `${Setting.StaticBaseUrl}/img/casbin.svg`,
+      defaultApplication: "",
       tags: [],
+      languages: Setting.Countries.map(item => item.key),
       masterPassword: "",
+      defaultPassword: "",
       enableSoftDeletion: false,
       isProfilePublic: true,
+      enableTour: true,
+      disableSignin: false,
+      mfaRememberInHours: DefaultMfaRememberInHours,
+      balanceCurrency: "USD",
       accountItems: [
         {name: "Organization", visible: true, viewRule: "Public", modifyRule: "Admin"},
         {name: "ID", visible: true, viewRule: "Public", modifyRule: "Immutable"},
         {name: "Name", visible: true, viewRule: "Public", modifyRule: "Admin"},
         {name: "Display name", visible: true, viewRule: "Public", modifyRule: "Self"},
+        {name: "First name", visible: true, viewRule: "Public", modifyRule: "Self"},
+        {name: "Last name", visible: true, viewRule: "Public", modifyRule: "Self"},
         {name: "Avatar", visible: true, viewRule: "Public", modifyRule: "Self"},
         {name: "User type", visible: true, viewRule: "Public", modifyRule: "Admin"},
         {name: "Password", visible: true, viewRule: "Self", modifyRule: "Self"},
         {name: "Email", visible: true, viewRule: "Public", modifyRule: "Self"},
         {name: "Phone", visible: true, viewRule: "Public", modifyRule: "Self"},
+        {name: "Country code", visible: true, viewRule: "Public", modifyRule: "Self"},
         {name: "Country/Region", visible: true, viewRule: "Public", modifyRule: "Self"},
         {name: "Location", visible: true, viewRule: "Public", modifyRule: "Self"},
+        {name: "Address", visible: true, viewRule: "Public", modifyRule: "Self"},
+        {name: "Addresses", visible: true, viewRule: "Public", modifyRule: "Self"},
         {name: "Affiliation", visible: true, viewRule: "Public", modifyRule: "Self"},
         {name: "Title", visible: true, viewRule: "Public", modifyRule: "Self"},
+        {name: "ID card type", visible: true, viewRule: "Public", modifyRule: "Self"},
+        {name: "ID card", visible: true, viewRule: "Public", modifyRule: "Self"},
+        {name: "ID card info", visible: true, viewRule: "Public", modifyRule: "Self"},
+        {name: "Real name", visible: true, viewRule: "Public", modifyRule: "Self"},
+        {name: "ID verification", visible: true, viewRule: "Self", modifyRule: "Self"},
         {name: "Homepage", visible: true, viewRule: "Public", modifyRule: "Self"},
         {name: "Bio", visible: true, viewRule: "Public", modifyRule: "Self"},
         {name: "Tag", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Language", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Gender", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Birthday", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Education", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Score", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Karma", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Ranking", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Balance", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Balance credit", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Balance currency", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Cart", visible: true, viewRule: "Self", modifyRule: "Self"},
+        {name: "Transactions", visible: true, viewRule: "Self", modifyRule: "Self"},
         {name: "Signup application", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Register type", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Register source", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "API key", label: i18next.t("general:API key"), modifyRule: "Self"},
+        {name: "Groups", visible: true, viewRule: "Public", modifyRule: "Admin"},
+        {name: "Roles", visible: true, viewRule: "Public", modifyRule: "Immutable"},
+        {name: "Permissions", visible: true, viewRule: "Public", modifyRule: "Immutable"},
+        {name: "Consents", visible: true, viewRule: "Self", modifyRule: "Self"},
         {name: "3rd-party logins", visible: true, viewRule: "Self", modifyRule: "Self"},
         {name: "Properties", visible: false, viewRule: "Admin", modifyRule: "Admin"},
+        {name: "Is online", visible: true, viewRule: "Admin", modifyRule: "Admin"},
         {name: "Is admin", visible: true, viewRule: "Admin", modifyRule: "Admin"},
-        {name: "Is global admin", visible: true, viewRule: "Admin", modifyRule: "Admin"},
         {name: "Is forbidden", visible: true, viewRule: "Admin", modifyRule: "Admin"},
         {name: "Is deleted", visible: true, viewRule: "Admin", modifyRule: "Admin"},
+        {name: "Multi-factor authentication", visible: true, viewRule: "Self", modifyRule: "Self"},
+        {name: "MFA items", visible: true, viewRule: "Self", modifyRule: "Self"},
+        {name: "WebAuthn credentials", visible: true, viewRule: "Self", modifyRule: "Self"},
+        {name: "Last change password time", visible: true, viewRule: "Admin", modifyRule: "Admin"},
+        {name: "Managed accounts", visible: true, viewRule: "Self", modifyRule: "Self"},
+        {name: "Face ID", visible: true, viewRule: "Self", modifyRule: "Self"},
+        {name: "MFA accounts", visible: true, viewRule: "Self", modifyRule: "Self"},
+        {name: "Need update password", visible: true, viewRule: "Admin", modifyRule: "Admin"},
+        {name: "IP whitelist", visible: true, viewRule: "Admin", modifyRule: "Admin"},
       ],
     };
   }
@@ -71,26 +122,37 @@ class OrganizationListPage extends BaseListPage {
     const newOrganization = this.newOrganization();
     OrganizationBackend.addOrganization(newOrganization)
       .then((res) => {
-        this.props.history.push({pathname: `/organizations/${newOrganization.name}`, mode: "add"});
-      }
-      )
+        if (res.status === "ok") {
+          this.props.history.push({pathname: `/organizations/${newOrganization.name}`, mode: "add"});
+          Setting.showMessage("success", i18next.t("general:Successfully added"));
+          window.dispatchEvent(new Event("storageOrganizationsChanged"));
+        } else {
+          Setting.showMessage("error", `${i18next.t("general:Failed to add")}: ${res.msg}`);
+        }
+      })
       .catch(error => {
-        Setting.showMessage("error", `Organization failed to add: ${error}`);
+        Setting.showMessage("error", `${i18next.t("general:Failed to connect to server")}: ${error}`);
       });
   }
 
   deleteOrganization(i) {
     OrganizationBackend.deleteOrganization(this.state.data[i])
       .then((res) => {
-        Setting.showMessage("success", "Organization deleted successfully");
-        this.setState({
-          data: Setting.deleteRow(this.state.data, i),
-          pagination: {total: this.state.pagination.total - 1},
-        });
-      }
-      )
+        if (res.status === "ok") {
+          Setting.showMessage("success", i18next.t("general:Successfully deleted"));
+          this.fetch({
+            pagination: {
+              ...this.state.pagination,
+              current: this.state.pagination.current > 1 && this.state.data.length === 1 ? this.state.pagination.current - 1 : this.state.pagination.current,
+            },
+          });
+          window.dispatchEvent(new Event("storageOrganizationsChanged"));
+        } else {
+          Setting.showMessage("error", `${i18next.t("general:Failed to delete")}: ${res.msg}`);
+        }
+      })
       .catch(error => {
-        Setting.showMessage("error", `Organization failed to delete: ${error}`);
+        Setting.showMessage("error", `${i18next.t("general:Failed to connect to server")}: ${error}`);
       });
   }
 
@@ -110,7 +172,7 @@ class OrganizationListPage extends BaseListPage {
               {text}
             </Link>
           );
-        }
+        },
       },
       {
         title: i18next.t("general:Created time"),
@@ -120,7 +182,7 @@ class OrganizationListPage extends BaseListPage {
         sorter: true,
         render: (text, record, index) => {
           return Setting.getFormattedDate(text);
-        }
+        },
       },
       {
         title: i18next.t("general:Display name"),
@@ -131,7 +193,7 @@ class OrganizationListPage extends BaseListPage {
         ...this.getColumnSearchProps("displayName"),
       },
       {
-        title: i18next.t("organization:Favicon"),
+        title: i18next.t("general:Favicon"),
         dataIndex: "favicon",
         key: "favicon",
         width: "50px",
@@ -141,13 +203,13 @@ class OrganizationListPage extends BaseListPage {
               <img src={text} alt={text} width={40} />
             </a>
           );
-        }
+        },
       },
       {
         title: i18next.t("organization:Website URL"),
         dataIndex: "websiteUrl",
         key: "websiteUrl",
-        width: "300px",
+        width: "200px",
         sorter: true,
         ...this.getColumnSearchProps("websiteUrl"),
         render: (text, record, index) => {
@@ -156,7 +218,7 @@ class OrganizationListPage extends BaseListPage {
               {text}
             </a>
           );
-        }
+        },
       },
       {
         title: i18next.t("general:Password type"),
@@ -180,7 +242,7 @@ class OrganizationListPage extends BaseListPage {
         ...this.getColumnSearchProps("passwordSalt"),
       },
       {
-        title: i18next.t("organization:Default avatar"),
+        title: i18next.t("general:Default avatar"),
         dataIndex: "defaultAvatar",
         key: "defaultAvatar",
         width: "120px",
@@ -190,7 +252,47 @@ class OrganizationListPage extends BaseListPage {
               <img src={text} alt={text} width={40} />
             </a>
           );
-        }
+        },
+      },
+      {
+        title: i18next.t("organization:Org balance"),
+        dataIndex: "orgBalance",
+        key: "orgBalance",
+        width: "120px",
+        sorter: true,
+        render: (text, record, index) => {
+          return text ?? 0;
+        },
+      },
+      {
+        title: i18next.t("organization:User balance"),
+        dataIndex: "userBalance",
+        key: "userBalance",
+        width: "120px",
+        sorter: true,
+        render: (text, record, index) => {
+          return text ?? 0;
+        },
+      },
+      {
+        title: i18next.t("organization:Balance credit"),
+        dataIndex: "balanceCredit",
+        key: "balanceCredit",
+        width: "120px",
+        sorter: true,
+        render: (text, record, index) => {
+          return text ?? 0;
+        },
+      },
+      {
+        title: i18next.t("organization:Balance currency"),
+        dataIndex: "balanceCurrency",
+        key: "balanceCurrency",
+        width: "140px",
+        sorter: true,
+        render: (text, record, index) => {
+          return text || "USD";
+        },
       },
       {
         title: i18next.t("organization:Soft deletion"),
@@ -200,34 +302,35 @@ class OrganizationListPage extends BaseListPage {
         sorter: true,
         render: (text, record, index) => {
           return (
-            <Switch disabled checkedChildren="ON" unCheckedChildren="OFF" checked={text} />
+            <Switch disabled checkedChildren={i18next.t("general:ON")} unCheckedChildren={i18next.t("general:OFF")} checked={text} />
           );
-        }
+        },
       },
       {
         title: i18next.t("general:Action"),
         dataIndex: "",
         key: "op",
-        width: "240px",
+        width: "350px",
         fixed: (Setting.isMobile()) ? "false" : "right",
         render: (text, record, index) => {
           return (
             <div>
+              <Button style={{marginTop: "10px", marginBottom: "10px", marginRight: "10px"}} type="primary" onClick={() => this.props.history.push(`/trees/${record.name}`)}>{i18next.t("general:Groups")}</Button>
               <Button style={{marginTop: "10px", marginBottom: "10px", marginRight: "10px"}} type="primary" onClick={() => this.props.history.push(`/organizations/${record.name}/users`)}>{i18next.t("general:Users")}</Button>
               <Button style={{marginTop: "10px", marginBottom: "10px", marginRight: "10px"}} onClick={() => this.props.history.push(`/organizations/${record.name}`)}>{i18next.t("general:Edit")}</Button>
-              <Popconfirm
-                title={`Sure to delete organization: ${record.name} ?`}
+              <PopconfirmModal
+                title={i18next.t("general:Sure to delete") + `: ${record.name} ?`}
                 onConfirm={() => this.deleteOrganization(index)}
                 disabled={record.name === "built-in"}
               >
-                <Button style={{marginBottom: "10px"}} disabled={record.name === "built-in"} type="danger">{i18next.t("general:Delete")}</Button>
-              </Popconfirm>
+              </PopconfirmModal>
             </div>
           );
-        }
+        },
       },
     ];
 
+    const filteredColumns = Setting.filterTableColumns(columns, this.props.formItems ?? this.state.formItems);
     const paginationProps = {
       total: this.state.pagination.total,
       showQuickJumper: true,
@@ -237,11 +340,11 @@ class OrganizationListPage extends BaseListPage {
 
     return (
       <div>
-        <Table scroll={{x: "max-content"}} columns={columns} dataSource={organizations} rowKey="name" size="middle" bordered pagination={paginationProps}
+        <Table scroll={{x: "max-content"}} columns={filteredColumns} dataSource={organizations} rowKey="name" size="middle" bordered pagination={paginationProps}
           title={() => (
             <div>
               {i18next.t("general:Organizations")}&nbsp;&nbsp;&nbsp;&nbsp;
-              <Button type="primary" size="small" onClick={this.addOrganization.bind(this)}>{i18next.t("general:Add")}</Button>
+              <Button type="primary" size="small" disabled={!Setting.isAdminUser(this.props.account)} onClick={this.addOrganization.bind(this)}>{i18next.t("general:Add")}</Button>
             </div>
           )}
           loading={this.state.loading}
@@ -253,17 +356,19 @@ class OrganizationListPage extends BaseListPage {
 
   fetch = (params = {}) => {
     let field = params.searchedColumn, value = params.searchText;
-    let sortField = params.sortField, sortOrder = params.sortOrder;
+    const sortField = params.sortField, sortOrder = params.sortOrder;
     if (params.passwordType !== undefined && params.passwordType !== null) {
       field = "passwordType";
       value = params.passwordType;
     }
     this.setState({loading: true});
-    OrganizationBackend.getOrganizations("admin", params.pagination.current, params.pagination.pageSize, field, value, sortField, sortOrder)
+    OrganizationBackend.getOrganizations("admin", Setting.isDefaultOrganizationSelected(this.props.account) ? "" : Setting.getRequestOrganization(this.props.account), params.pagination.current, params.pagination.pageSize, field, value, sortField, sortOrder)
       .then((res) => {
+        this.setState({
+          loading: false,
+        });
         if (res.status === "ok") {
           this.setState({
-            loading: false,
             data: res.data,
             pagination: {
               ...params.pagination,
@@ -272,6 +377,14 @@ class OrganizationListPage extends BaseListPage {
             searchText: params.searchText,
             searchedColumn: params.searchedColumn,
           });
+        } else {
+          if (Setting.isResponseDenied(res)) {
+            this.setState({
+              isAuthorized: false,
+            });
+          } else {
+            Setting.showMessage("error", res.msg);
+          }
         }
       });
   };

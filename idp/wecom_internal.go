@@ -17,24 +17,28 @@ package idp
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"time"
 
 	"golang.org/x/oauth2"
 )
 
-//This idp is using wecom internal application api as idp
+// WeComInternalIdProvider
+// This idp is using wecom internal application api as idp
 type WeComInternalIdProvider struct {
 	Client *http.Client
 	Config *oauth2.Config
+
+	UseIdAsName bool
 }
 
-func NewWeComInternalIdProvider(clientId string, clientSecret string, redirectUrl string) *WeComInternalIdProvider {
+func NewWeComInternalIdProvider(clientId string, clientSecret string, redirectUrl string, useIdAsName bool) *WeComInternalIdProvider {
 	idp := &WeComInternalIdProvider{}
 
 	config := idp.getConfig(clientId, clientSecret, redirectUrl)
 	idp.Config = config
+	idp.UseIdAsName = useIdAsName
 
 	return idp
 }
@@ -44,7 +48,7 @@ func (idp *WeComInternalIdProvider) SetHttpClient(client *http.Client) {
 }
 
 func (idp *WeComInternalIdProvider) getConfig(clientId string, clientSecret string, redirectUrl string) *oauth2.Config {
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		ClientID:     clientId,
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectUrl,
@@ -72,7 +76,7 @@ func (idp *WeComInternalIdProvider) GetToken(code string) (*oauth2.Token, error)
 		return nil, err
 	}
 
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +119,7 @@ type WecomInternalUserInfo struct {
 }
 
 func (idp *WeComInternalIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error) {
-	//Get userid first
+	// Get userid first
 	accessToken := token.AccessToken
 	code := token.Extra("code").(string)
 	resp, err := idp.Client.Get(fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/user/getuserinfo?access_token=%s&code=%s", accessToken, code))
@@ -123,7 +127,7 @@ func (idp *WeComInternalIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo,
 		return nil, err
 	}
 
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -138,13 +142,13 @@ func (idp *WeComInternalIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo,
 	if userResp.OpenId != "" {
 		return nil, fmt.Errorf("not an internal user")
 	}
-	//Use userid and accesstoken to get user information
+	// Use userid and accesstoken to get user information
 	resp, err = idp.Client.Get(fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/user/get?access_token=%s&userid=%s", accessToken, userResp.UserId))
 	if err != nil {
 		return nil, err
 	}
 
-	data, err = ioutil.ReadAll(resp.Body)
+	data, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -166,6 +170,10 @@ func (idp *WeComInternalIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo,
 
 	if userInfo.Id == "" {
 		userInfo.Id = userInfo.Username
+	}
+
+	if idp.UseIdAsName {
+		userInfo.Username = userInfo.Id
 	}
 
 	return &userInfo, nil

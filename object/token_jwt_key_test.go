@@ -23,10 +23,41 @@ import (
 
 func TestGenerateRsaKeys(t *testing.T) {
 	fileId := "token_jwt_key"
-	publicKey, privateKey := generateRsaKeys(4096, 20, "Casdoor Cert", "Casdoor Organization")
+	certificate, privateKey, err := generateRsaKeys(4096, 512, 20, "Casdoor Cert", "Casdoor Organization")
+	if err != nil {
+		panic(err)
+	}
 
-	// Write certificate (aka public key) to file.
-	util.WriteStringToPath(publicKey, fmt.Sprintf("%s.pem", fileId))
+	// Write certificate (aka certificate) to file.
+	util.WriteStringToPath(certificate, fmt.Sprintf("%s.pem", fileId))
+
+	// Write private key to file.
+	util.WriteStringToPath(privateKey, fmt.Sprintf("%s.key", fileId))
+}
+
+func TestGenerateEsKeys(t *testing.T) {
+	fileId := "token_jwt_key"
+	certificate, privateKey, err := generateEsKeys(256, 20, "Casdoor Cert", "Casdoor Organization")
+	if err != nil {
+		panic(err)
+	}
+
+	// Write certificate (aka certificate) to file.
+	util.WriteStringToPath(certificate, fmt.Sprintf("%s.pem", fileId))
+
+	// Write private key to file.
+	util.WriteStringToPath(privateKey, fmt.Sprintf("%s.key", fileId))
+}
+
+func TestGenerateRsaPssKeys(t *testing.T) {
+	fileId := "token_jwt_key"
+	certificate, privateKey, err := generateRsaPssKeys(4096, 256, 20, "Casdoor Cert", "Casdoor Organization")
+	if err != nil {
+		panic(err)
+	}
+
+	// Write certificate (aka certificate) to file.
+	util.WriteStringToPath(certificate, fmt.Sprintf("%s.pem", fileId))
 
 	// Write private key to file.
 	util.WriteStringToPath(privateKey, fmt.Sprintf("%s.key", fileId))

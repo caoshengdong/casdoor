@@ -18,7 +18,7 @@ import (
 	"fmt"
 
 	"github.com/casdoor/casdoor/util"
-	"xorm.io/core"
+	"github.com/xorm-io/core"
 )
 
 type Product struct {
@@ -27,185 +27,335 @@ type Product struct {
 	CreatedTime string `xorm:"varchar(100)" json:"createdTime"`
 	DisplayName string `xorm:"varchar(100)" json:"displayName"`
 
-	Image     string   `xorm:"varchar(100)" json:"image"`
-	Detail    string   `xorm:"varchar(100)" json:"detail"`
-	Tag       string   `xorm:"varchar(100)" json:"tag"`
-	Currency  string   `xorm:"varchar(100)" json:"currency"`
-	Price     float64  `json:"price"`
-	Quantity  int      `json:"quantity"`
-	Sold      int      `json:"sold"`
-	Providers []string `xorm:"varchar(100)" json:"providers"`
-	ReturnUrl string   `xorm:"varchar(1000)" json:"returnUrl"`
+	Image                 string    `xorm:"varchar(100)" json:"image"`
+	Detail                string    `xorm:"varchar(1000)" json:"detail"`
+	Description           string    `xorm:"varchar(200)" json:"description"`
+	Tag                   string    `xorm:"varchar(100)" json:"tag"`
+	Currency              string    `xorm:"varchar(100)" json:"currency"`
+	Price                 float64   `json:"price"`
+	Quantity              int       `json:"quantity"`
+	Sold                  int       `json:"sold"`
+	IsRecharge            bool      `json:"isRecharge"`
+	RechargeOptions       []float64 `xorm:"varchar(500)" json:"rechargeOptions"`
+	DisableCustomRecharge bool      `json:"disableCustomRecharge"`
+	Providers             []string  `xorm:"varchar(255)" json:"providers"`
+	SuccessUrl            string    `xorm:"varchar(1000)" json:"successUrl"`
 
 	State string `xorm:"varchar(100)" json:"state"`
+
+	ProviderObjs []*Provider `xorm:"-" json:"providerObjs"`
 }
 
-func GetProductCount(owner, field, value string) int {
+func GetProductCount(owner, field, value string) (int64, error) {
 	session := GetSession(owner, -1, -1, field, value, "", "")
-	count, err := session.Count(&Product{})
-	if err != nil {
-		panic(err)
-	}
-
-	return int(count)
+	return session.Count(&Product{})
 }
 
-func GetProducts(owner string) []*Product {
+func GetProducts(owner string) ([]*Product, error) {
 	products := []*Product{}
-	err := adapter.Engine.Desc("created_time").Find(&products, &Product{Owner: owner})
+	err := ormer.Engine.Desc("created_time").Find(&products, &Product{Owner: owner})
 	if err != nil {
-		panic(err)
+		return products, err
 	}
 
-	return products
+	return products, nil
 }
 
-func GetPaginationProducts(owner string, offset, limit int, field, value, sortField, sortOrder string) []*Product {
+func GetPaginationProducts(owner string, offset, limit int, field, value, sortField, sortOrder string) ([]*Product, error) {
 	products := []*Product{}
 	session := GetSession(owner, offset, limit, field, value, sortField, sortOrder)
 	err := session.Find(&products)
 	if err != nil {
-		panic(err)
+		return products, err
 	}
 
-	return products
+	return products, nil
 }
 
-func getProduct(owner string, name string) *Product {
+func getProduct(owner string, name string) (*Product, error) {
 	if owner == "" || name == "" {
-		return nil
+		return nil, nil
 	}
 
 	product := Product{Owner: owner, Name: name}
-	existed, err := adapter.Engine.Get(&product)
+	existed, err := ormer.Engine.Get(&product)
 	if err != nil {
-		panic(err)
+		return &product, nil
 	}
 
 	if existed {
-		return &product
+		return &product, nil
 	} else {
-		return nil
+		return nil, nil
 	}
 }
 
-func GetProduct(id string) *Product {
-	owner, name := util.GetOwnerAndNameFromId(id)
+func GetProduct(id string) (*Product, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return nil, err
+	}
 	return getProduct(owner, name)
 }
 
-func UpdateProduct(id string, product *Product) bool {
-	owner, name := util.GetOwnerAndNameFromId(id)
-	if getProduct(owner, name) == nil {
-		return false
-	}
+func UpdateProductStock(productInfos []ProductInfo) error {
+	var (
+		affected int64
+		err      error
+	)
+	for _, product := range productInfos {
+		if product.IsRecharge {
+			affected, err = ormer.Engine.ID(core.PK{product.Owner, product.Name}).
+				Incr("sold", product.Quantity).
+				Update(&Product{})
+		} else {
+			affected, err = ormer.Engine.ID(core.PK{product.Owner, product.Name}).
+				Where("quantity >= ?", product.Quantity).
+				Decr("quantity", product.Quantity).
+				Incr("sold", product.Quantity).
+				Update(&Product{})
+		}
 
-	affected, err := adapter.Engine.ID(core.PK{owner, name}).AllCols().Update(product)
-	if err != nil {
-		panic(err)
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			if product.IsRecharge {
+				return fmt.Errorf("failed to update stock for product: %s", product.Name)
+			}
+			return fmt.Errorf("insufficient stock for product: %s", product.Name)
+		}
 	}
-
-	return affected != 0
+	return nil
 }
 
-func AddProduct(product *Product) bool {
-	affected, err := adapter.Engine.Insert(product)
+func UpdateProduct(id string, product *Product) (bool, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
-		panic(err)
+		return false, err
+	}
+	if p, err := getProduct(owner, name); err != nil {
+		return false, err
+	} else if p == nil {
+		return false, nil
 	}
 
-	return affected != 0
+	err = checkProduct(product)
+	if err != nil {
+		return false, err
+	}
+
+	affected, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(product)
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
 }
 
-func DeleteProduct(product *Product) bool {
-	affected, err := adapter.Engine.ID(core.PK{product.Owner, product.Name}).Delete(&Product{})
+func AddProduct(product *Product) (bool, error) {
+	err := checkProduct(product)
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
-	return affected != 0
+	affected, err := ormer.Engine.Insert(product)
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+func checkProduct(product *Product) error {
+	if product == nil {
+		return fmt.Errorf("the product not exist")
+	}
+
+	if product.Currency == "" {
+		return fmt.Errorf("currency cannot be empty")
+	}
+
+	if len(product.Providers) == 0 {
+		providers, err := GetProvidersByCategory(product.Owner, "Payment")
+		if err != nil {
+			return err
+		}
+		if len(providers) == 0 {
+			return fmt.Errorf("no payment provider available")
+		}
+
+		for _, provider := range providers {
+			if provider.Type != "Alipay" || product.Currency == "CNY" {
+				product.Providers = append(product.Providers, provider.Name)
+			}
+		}
+
+		if len(product.Providers) == 0 {
+			return fmt.Errorf("no compatible payment provider available for currency: %s", product.Currency)
+		}
+	} else {
+		for _, providerName := range product.Providers {
+			provider, err := getProvider(product.Owner, providerName)
+			if err != nil {
+				return err
+			}
+			if provider != nil && provider.Type == "Alipay" && product.Currency != "CNY" {
+				return fmt.Errorf("alipay provider only supports CNY, got: %s", product.Currency)
+			}
+		}
+	}
+	return nil
+}
+
+func DeleteProduct(product *Product) (bool, error) {
+	affected, err := ormer.Engine.ID(core.PK{product.Owner, product.Name}).Delete(&Product{})
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
 }
 
 func (product *Product) GetId() string {
 	return fmt.Sprintf("%s/%s", product.Owner, product.Name)
 }
 
-func (product *Product) isValidProvider(provider *Provider) bool {
+func (product *Product) isValidProvider(provider *Provider) error {
+	if provider.Type == "Alipay" && product.Currency != "CNY" {
+		return fmt.Errorf("alipay provider only supports CNY, got: %s", product.Currency)
+	}
+
+	providerMatched := false
 	for _, providerName := range product.Providers {
 		if providerName == provider.Name {
-			return true
+			providerMatched = true
+			break
 		}
 	}
-	return false
-}
-
-func (product *Product) getProvider(providerId string) (*Provider, error) {
-	provider := getProvider(product.Owner, providerId)
-	if provider == nil {
-		return nil, fmt.Errorf("the payment provider: %s does not exist", providerId)
+	if !providerMatched {
+		return fmt.Errorf("the payment provider: %s is not valid for the product: %s", provider.Name, product.Name)
 	}
 
-	if !product.isValidProvider(provider) {
-		return nil, fmt.Errorf("the payment provider: %s is not valid for the product: %s", providerId, product.Name)
+	return nil
+}
+
+func (product *Product) getProvider(providerName string) (*Provider, error) {
+	provider, err := getProvider(product.Owner, providerName)
+	if err != nil {
+		return nil, err
+	}
+
+	if provider == nil {
+		return nil, fmt.Errorf("the payment provider: %s does not exist", providerName)
+	}
+
+	if err := product.isValidProvider(provider); err != nil {
+		return nil, err
 	}
 
 	return provider, nil
 }
 
-func BuyProduct(id string, providerName string, user *User, host string) (string, error) {
-	product := GetProduct(id)
+func ExtendProductWithProviders(product *Product) error {
 	if product == nil {
-		return "", fmt.Errorf("the product: %s does not exist", id)
+		return nil
 	}
 
-	provider, err := product.getProvider(providerName)
+	product.ProviderObjs = []*Provider{}
+
+	m, err := getProviderMap(product.Owner)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	pProvider, _, err := provider.getPaymentProvider()
+	for _, providerItem := range product.Providers {
+		if provider, ok := m[providerItem]; ok {
+			product.ProviderObjs = append(product.ProviderObjs, provider)
+		}
+	}
+
+	return nil
+}
+
+func CreateProductForPlan(plan *Plan) *Product {
+	product := &Product{
+		Owner:       plan.Owner,
+		Name:        fmt.Sprintf("product_%v", util.GetRandomName()),
+		DisplayName: fmt.Sprintf("Product for Plan %v/%v/%v", plan.Name, plan.DisplayName, plan.Period),
+		CreatedTime: plan.CreatedTime,
+
+		Image:       "https://cdn.casbin.org/img/casdoor-logo_1185x256.png", // TODO
+		Detail:      fmt.Sprintf("This product was auto created for plan %v(%v), subscription period is %v", plan.Name, plan.DisplayName, plan.Period),
+		Description: plan.Description,
+		Tag:         "auto_created_product_for_plan",
+		Price:       plan.Price,
+		Currency:    plan.Currency,
+
+		Quantity:   999,
+		Sold:       0,
+		IsRecharge: false,
+
+		Providers: plan.PaymentProviders,
+		State:     "Published",
+	}
+	if product.Providers == nil {
+		product.Providers = []string{}
+	}
+	return product
+}
+
+func UpdateProductForPlan(plan *Plan, product *Product) {
+	product.Owner = plan.Owner
+	product.DisplayName = fmt.Sprintf("Product for Plan %v/%v/%v", plan.Name, plan.DisplayName, plan.Period)
+	product.Detail = fmt.Sprintf("This product was auto created for plan %v(%v), subscription period is %v", plan.Name, plan.DisplayName, plan.Period)
+	product.Price = plan.Price
+	product.Currency = plan.Currency
+	product.Providers = plan.PaymentProviders
+}
+
+func getOrderProducts(owner string, productNames []string) ([]Product, error) {
+	if len(productNames) == 0 {
+		return []Product{}, nil
+	}
+
+	var products []Product
+	err := ormer.Engine.
+		Where("owner = ?", owner).
+		In("name", productNames).
+		Find(&products)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	owner := product.Owner
-	productName := product.Name
-	payerName := fmt.Sprintf("%s | %s", user.Name, user.DisplayName)
-	paymentName := util.GenerateTimeId()
-	productDisplayName := product.DisplayName
-
-	originFrontend, originBackend := getOriginFromHost(host)
-	returnUrl := fmt.Sprintf("%s/payments/%s/result", originFrontend, paymentName)
-	notifyUrl := fmt.Sprintf("%s/api/notify-payment/%s/%s/%s/%s", originBackend, owner, providerName, productName, paymentName)
-
-	payUrl, err := pProvider.Pay(providerName, productName, payerName, paymentName, productDisplayName, product.Price, returnUrl, notifyUrl)
-	if err != nil {
-		return "", err
+	productMap := make(map[string]Product, len(products))
+	for _, product := range products {
+		productMap[product.Name] = product
 	}
 
-	payment := Payment{
-		Owner:              product.Owner,
-		Name:               paymentName,
-		CreatedTime:        util.GetCurrentTime(),
-		DisplayName:        paymentName,
-		Provider:           provider.Name,
-		Type:               provider.Type,
-		Organization:       user.Owner,
-		User:               user.Name,
-		ProductName:        productName,
-		ProductDisplayName: productDisplayName,
-		Detail:             product.Detail,
-		Tag:                product.Tag,
-		Currency:           product.Currency,
-		Price:              product.Price,
-		PayUrl:             payUrl,
-		ReturnUrl:          product.ReturnUrl,
-		State:              "Created",
+	orderedProducts := make([]Product, 0, len(productNames))
+	for _, productName := range productNames {
+		product, ok := productMap[productName]
+		if !ok {
+			return nil, fmt.Errorf("the product: %s does not exist", productName)
+		}
+		orderedProducts = append(orderedProducts, product)
 	}
-	affected := AddPayment(&payment)
-	if !affected {
-		return "", fmt.Errorf("failed to add payment: %s", util.StructToJson(payment))
-	}
+	return orderedProducts, nil
+}
 
-	return payUrl, err
+func validateProductCurrencies(products []Product, orderCurrency string) error {
+	for _, product := range products {
+		productCurrency := product.Currency
+		if productCurrency == "" {
+			productCurrency = "USD"
+		}
+		if productCurrency != orderCurrency {
+			return fmt.Errorf("products have different currencies, expected: %s, got: %s (product: %s)", orderCurrency, productCurrency, product.Name)
+		}
+		if !product.IsRecharge && product.Quantity <= 0 {
+			return fmt.Errorf("the product: %s is out of stock", product.Name)
+		}
+	}
+	return nil
 }

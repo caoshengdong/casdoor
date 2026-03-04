@@ -13,46 +13,57 @@
 // limitations under the License.
 
 import i18n from "i18next";
-import zh from "./locales/zh/data.json";
-import en from "./locales/en/data.json";
-import fr from "./locales/fr/data.json";
-import de from "./locales/de/data.json";
-import ko from "./locales/ko/data.json";
-import ru from "./locales/ru/data.json";
-import ja from "./locales/ja/data.json";
 import * as Conf from "./Conf";
-import * as Setting from "./Setting";
+import {initReactI18next} from "react-i18next";
+import en from "./locales/en/data.json";
 
-const resources = {
-  en: en,
-  zh: zh,
-  fr: fr,
-  de: de,
-  ko: ko,
-  ru: ru,
-  ja: ja,
-};
+const resourcesToBackend = (res) => ({
+  type: "backend",
+  init(services, backendOptions, i18nextOptions) {/* use services and options */},
+  read(language, namespace, callback) {
+    if (typeof res === "function") {
+      if (res.length < 3) {
+        try {
+          const r = res(language, namespace);
+          if (r && typeof r.then === "function") {
+            r.then((data) => callback(null, (data && data.default) || data)).catch(callback);
+          } else {
+            callback(null, r);
+          }
+        } catch (err) {
+          callback(err);
+        }
+        return;
+      }
+      res(language, namespace, callback);
+      return;
+    }
+    callback(null, res && res[language] && res[language][namespace]);
+  },
+});
 
 function initLanguage() {
   let language = localStorage.getItem("language");
-  if (language === undefined || language == null) {
+  if (language === undefined || language === null || language === "") {
     if (Conf.ForceLanguage !== "") {
       language = Conf.ForceLanguage;
     } else {
-      let userLanguage;
-      userLanguage = navigator.language;
+      const userLanguage = navigator.language;
       switch (userLanguage) {
+      case "en":
+        language = "en";
+        break;
+      case "en-US":
+        language = "en";
+        break;
       case "zh-CN":
         language = "zh";
         break;
       case "zh":
         language = "zh";
         break;
-      case "en":
-        language = "en";
-        break;
-      case "en-US":
-        language = "en";
+      case "es":
+        language = "es";
         break;
       case "fr":
         language = "fr";
@@ -60,37 +71,97 @@ function initLanguage() {
       case "de":
         language = "de";
         break;
+      case "id":
+        language = "id";
+        break;
+      case "ja":
+        language = "ja";
+        break;
       case "ko":
         language = "ko";
         break;
       case "ru":
         language = "ru";
         break;
-      case "ja":
-        language = "ja";
+      case "vi":
+        language = "vi";
+        break;
+      case "pt":
+        language = "pt";
+        break;
+      case "it":
+        language = "it";
+        break;
+      case "ms":
+        language = "ms";
+        break;
+      case "tr":
+        language = "tr";
+        break;
+      case "ar":
+        language = "ar";
+        break;
+      case "he":
+        language = "he";
+        break;
+      case "nl":
+        language = "nl";
+        break;
+      case "pl":
+        language = "pl";
+        break;
+      case "fi":
+        language = "fi";
+        break;
+      case "sv":
+        language = "sv";
+        break;
+      case "uk":
+        language = "uk";
+        break;
+      case "kk":
+        language = "kk";
+        break;
+      case "fa":
+        language = "fa";
+        break;
+      case "cs":
+      case "cs-CZ":
+        language = "cs";
+        break;
+      case "sk":
+      case "sk-SK":
+        language = "sk";
+        break;
+      case "az":
+        language = "az";
         break;
       default:
         language = Conf.DefaultLanguage;
       }
     }
   }
-  Setting.changeMomentLanguage(language);
 
   return language;
 }
 
-i18n.init({
-  lng: initLanguage(),
+i18n.use(resourcesToBackend(async(language, namespace) => {
+  const res = await import(`./locales/${language}/data.json`);
+  return res.default[namespace];
+}
+))
+  .use(initReactI18next)
+  .init({
+    lng: initLanguage(),
+    ns: Object.keys(en),
+    fallbackLng: "en",
 
-  resources: resources,
+    keySeparator: false,
 
-  keySeparator: false,
-
-  interpolation: {
-    escapeValue: false,
-  },
-  // debug: true,
-  saveMissing: true,
-});
-
+    interpolation: {
+      escapeValue: true,
+    },
+    // debug: true,
+    saveMissing: true,
+  });
 export default i18n;

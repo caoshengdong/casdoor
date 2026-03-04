@@ -15,9 +15,10 @@
 package util
 
 import (
+	"testing"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestParseInt(t *testing.T) {
@@ -136,16 +137,16 @@ func TestGenerateId(t *testing.T) {
 func TestGetId(t *testing.T) {
 	scenarios := []struct {
 		description string
-		input       string
+		input       []string
 		expected    interface{}
 	}{
-		{"Scenery one", "casdoor", "admin/casdoor"},
-		{"Scenery two", "casbin", "admin/casbin"},
-		{"Scenery three", "lorem ipsum", "admin/lorem ipsum"},
+		{"Scenery one", []string{"admin", "casdoor"}, "admin/casdoor"},
+		{"Scenery two", []string{"admin", "casbin"}, "admin/casbin"},
+		{"Scenery three", []string{"test", "lorem ipsum"}, "test/lorem ipsum"},
 	}
 	for _, scenery := range scenarios {
 		t.Run(scenery.description, func(t *testing.T) {
-			actual := GetId(scenery.input)
+			actual := GetId(scenery.input[0], scenery.input[1])
 			assert.Equal(t, scenery.expected, actual, "This not is a valid MD5")
 		})
 	}
@@ -182,46 +183,7 @@ func TestIsStrsEmpty(t *testing.T) {
 	}
 	for _, scenery := range scenarios {
 		t.Run(scenery.description, func(t *testing.T) {
-			actual := IsStrsEmpty(scenery.input...)
-			assert.Equal(t, scenery.expected, actual, "The returned value not is expected")
-		})
-	}
-}
-
-func TestGetMaxLenStr(t *testing.T) {
-	scenarios := []struct {
-		description string
-		input       []string
-		expected    interface{}
-	}{
-		{"Should be return casdoor", []string{"", "casdoor", "casbin"}, "casdoor"},
-		{"Should be return casdoor_jdk", []string{"", "casdoor", "casbin", "casdoor_jdk"}, "casdoor_jdk"},
-		{"Should be return empty string", []string{""}, ""},
-	}
-	for _, scenery := range scenarios {
-		t.Run(scenery.description, func(t *testing.T) {
-			actual := GetMaxLenStr(scenery.input...)
-			assert.Equal(t, scenery.expected, actual, "The returned value not is expected")
-		})
-	}
-}
-
-func TestGetMinLenStr(t *testing.T) {
-	scenarios := []struct {
-		description string
-		input       []string
-		expected    interface{}
-	}{
-		{"Should be return casbin", []string{"casdoor", "casbin"}, "casbin"},
-		{"Should be return casbin", []string{"casdoor", "casbin", "casdoor_jdk"}, "casbin"},
-		{"Should be return empty string", []string{"a", "", "casbin"}, ""},
-		{"Should be return a", []string{"a", "casdoor", "casbin"}, "a"},
-		{"Should be return a", []string{"casdoor", "a", "casbin"}, "a"},
-		{"Should be return a", []string{"casbin", "casdoor", "a"}, "a"},
-	}
-	for _, scenery := range scenarios {
-		t.Run(scenery.description, func(t *testing.T) {
-			actual := GetMinLenStr(scenery.input...)
+			actual := IsStringsEmpty(scenery.input...)
 			assert.Equal(t, scenery.expected, actual, "The returned value not is expected")
 		})
 	}
@@ -246,3 +208,22 @@ func TestSnakeString(t *testing.T) {
 	}
 }
 
+func TestParseId(t *testing.T) {
+	scenarios := []struct {
+		description string
+		input       interface{}
+		expected    interface{}
+	}{
+		{"Should be return 123456", "123456", "123456"},
+		{"Should be return 123456", 123456, "123456"},
+		{"Should be return 123456", int64(123456), "123456"},
+		{"Should be return 123456", float64(123456), "123456"},
+	}
+	for _, scenery := range scenarios {
+		t.Run(scenery.description, func(t *testing.T) {
+			actual, err := ParseIdToString(scenery.input)
+			assert.Nil(t, err, "The returned value not is expected")
+			assert.Equal(t, scenery.expected, actual, "The returned value not is expected")
+		})
+	}
+}

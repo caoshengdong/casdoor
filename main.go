@@ -15,65 +15,116 @@
 package main
 
 import (
-	"flag"
+	"encoding/json"
 	"fmt"
 
-	"github.com/astaxie/beego"
-	"github.com/astaxie/beego/logs"
-	_ "github.com/astaxie/beego/session/redis"
+	"github.com/beego/beego/v2/core/logs"
+	"github.com/beego/beego/v2/server/web"
+	_ "github.com/beego/beego/v2/server/web/session/redis"
 	"github.com/casdoor/casdoor/authz"
 	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/controllers"
+	"github.com/casdoor/casdoor/ldap"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/proxy"
+	"github.com/casdoor/casdoor/radius"
 	"github.com/casdoor/casdoor/routers"
-	_ "github.com/casdoor/casdoor/routers"
 	"github.com/casdoor/casdoor/util"
 )
 
 func main() {
-	createDatabase := flag.Bool("createDatabase", false, "true if you need Casdoor to create database")
-	flag.Parse()
+	web.BConfig.WebConfig.Session.SessionOn = true
+	web.BConfig.WebConfig.Session.SessionName = "casdoor_session_id"
+	if conf.GetConfigString("redisEndpoint") == "" {
+		web.BConfig.WebConfig.Session.SessionProvider = "file"
+		web.BConfig.WebConfig.Session.SessionProviderConfig = "./tmp"
+	} else {
+		web.BConfig.WebConfig.Session.SessionProvider = "redis"
+		web.BConfig.WebConfig.Session.SessionProviderConfig = conf.GetConfigString("redisEndpoint")
+	}
+	web.BConfig.WebConfig.Session.SessionCookieLifeTime = 3600 * 24 * 30
+	web.BConfig.WebConfig.Session.SessionGCMaxLifetime = 3600 * 24 * 30
+	// web.BConfig.WebConfig.Session.SessionCookieSameSite = http.SameSiteNoneMode
 
-	object.InitAdapter(*createDatabase)
+	routers.InitAPI()
+	object.InitFlag()
+	object.InitAdapter()
+	object.CreateTables()
+
 	object.InitDb()
-	object.InitFromFile()
+
+	// Handle export command
+	if object.ShouldExportData() {
+		exportPath := object.GetExportFilePath()
+		err := object.DumpToFile(exportPath)
+		if err != nil {
+			panic(fmt.Sprintf("Error exporting data to %s: %v", exportPath, err))
+		}
+		fmt.Printf("Data exported successfully to %s\n", exportPath)
+		return
+	}
+
 	object.InitDefaultStorageProvider()
 	object.InitLdapAutoSynchronizer()
 	proxy.InitHttpClient()
-	authz.InitAuthz()
+	authz.InitApi()
+	object.InitUserManager()
+	object.InitFromFile()
+	object.InitCasvisorConfig()
+	object.InitCleanupTokens()
 
-	util.SafeGoroutine(func() {object.RunSyncUsersJob()})
+	util.SafeGoroutine(func() { object.RunSyncUsersJob() })
+	util.SafeGoroutine(func() { controllers.InitCLIDownloader() })
 
-	//beego.DelStaticPath("/static")
-	beego.SetStaticPath("/static", "web/build/static")
-	beego.BConfig.WebConfig.DirectoryIndex = true
-	beego.SetStaticPath("/swagger", "swagger")
-	beego.SetStaticPath("/files", "files")
+	// web.DelStaticPath("/static")
+	// web.SetStaticPath("/static", "web/build/static")
+
+	web.BConfig.WebConfig.DirectoryIndex = true
+	web.SetStaticPath("/swagger", "swagger")
+	web.SetStaticPath("/files", "files")
 	// https://studygolang.com/articles/2303
-	beego.InsertFilter("*", beego.BeforeRouter, routers.StaticFilter)
-	beego.InsertFilter("*", beego.BeforeRouter, routers.AutoSigninFilter)
-	beego.InsertFilter("*", beego.BeforeRouter, routers.CorsFilter)
-	beego.InsertFilter("*", beego.BeforeRouter, routers.AuthzFilter)
-	beego.InsertFilter("*", beego.BeforeRouter, routers.RecordMessage)
+	web.InsertFilter("*", web.BeforeRouter, routers.StaticFilter)
+	web.InsertFilter("*", web.BeforeRouter, routers.AutoSigninFilter)
+	web.InsertFilter("*", web.BeforeRouter, routers.CorsFilter)
+	web.InsertFilter("*", web.BeforeRouter, routers.TimeoutFilter)
+	web.InsertFilter("*", web.BeforeRouter, routers.ApiFilter)
+	web.InsertFilter("*", web.BeforeRouter, routers.PrometheusFilter)
+	web.InsertFilter("*", web.BeforeRouter, routers.RecordMessage)
+	web.InsertFilter("*", web.BeforeRouter, routers.FieldValidationFilter)
+	web.InsertFilter("*", web.AfterExec, routers.AfterRecordMessage, web.WithReturnOnOutput(false))
 
-	beego.BConfig.WebConfig.Session.SessionOn = true
-	beego.BConfig.WebConfig.Session.SessionName = "casdoor_session_id"
-	if conf.GetConfigString("redisEndpoint") == "" {
-		beego.BConfig.WebConfig.Session.SessionProvider = "file"
-		beego.BConfig.WebConfig.Session.SessionProviderConfig = "./tmp"
-	} else {
-		beego.BConfig.WebConfig.Session.SessionProvider = "redis"
-		beego.BConfig.WebConfig.Session.SessionProviderConfig = conf.GetConfigString("redisEndpoint")
-	}
-	beego.BConfig.WebConfig.Session.SessionCookieLifeTime = 3600 * 24 * 30
-	//beego.BConfig.WebConfig.Session.SessionCookieSameSite = http.SameSiteNoneMode
-
-	err := logs.SetLogger("file", `{"filename":"logs/casdoor.log","maxdays":99999,"perm":"0770"}`)
+	var logAdapter string
+	logConfigMap := make(map[string]interface{})
+	err := json.Unmarshal([]byte(conf.GetConfigString("logConfig")), &logConfigMap)
 	if err != nil {
 		panic(err)
 	}
-	port := beego.AppConfig.DefaultInt("httpport", 8000)
-	//logs.SetLevel(logs.LevelInformational)
+	_, ok := logConfigMap["adapter"]
+	if !ok {
+		logAdapter = "file"
+	} else {
+		logAdapter = logConfigMap["adapter"].(string)
+	}
+	if logAdapter == "console" {
+		logs.Reset()
+	}
+	err = logs.SetLogger(logAdapter, conf.GetConfigString("logConfig"))
+	if err != nil {
+		panic(err)
+	}
+
+	port := web.AppConfig.DefaultInt("httpport", 8000)
+	// logs.SetLevel(logs.LevelInformational)
 	logs.SetLogFuncCall(false)
-	beego.Run(fmt.Sprintf(":%v", port))
+
+	err = util.StopOldInstance(port)
+	if err != nil {
+		panic(err)
+	}
+
+	go ldap.StartLdapServer()
+	go radius.StartRadiusServer()
+	go object.ClearThroughputPerSecond()
+
+	web.Run(fmt.Sprintf(":%v", port))
 }

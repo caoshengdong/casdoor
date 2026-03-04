@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/casdoor/casdoor/util"
@@ -26,37 +27,82 @@ import (
 
 type I18nData map[string]map[string]string
 
-var reI18n *regexp.Regexp
+var (
+	reI18nFrontend          *regexp.Regexp
+	reI18nBackendObject     *regexp.Regexp
+	reI18nBackendController *regexp.Regexp
+)
 
 func init() {
-	reI18n, _ = regexp.Compile("i18next.t\\(\"(.*?)\"\\)")
+	reI18nFrontend, _ = regexp.Compile("i18next.t\\(\"(.*?)\"\\)")
+	reI18nBackendObject, _ = regexp.Compile("i18n.Translate\\((.*?)\"\\)")
+	reI18nBackendController, _ = regexp.Compile("c.T\\((.*?)\"\\)")
 }
 
-func getAllI18nStrings(fileContent string) []string {
+func getAllI18nStringsFrontend(fileContent string) []string {
 	res := []string{}
 
-	matches := reI18n.FindAllStringSubmatch(fileContent, -1)
+	matches := reI18nFrontend.FindAllStringSubmatch(fileContent, -1)
 	if matches == nil {
 		return res
 	}
 
 	for _, match := range matches {
-		res = append(res, match[1])
+		target, err := strconv.Unquote("\"" + match[1] + "\"")
+		if err != nil {
+			target = match[1]
+		}
+		res = append(res, target)
 	}
 	return res
 }
 
-func getAllJsFilePaths() []string {
-	path := "../web/src"
-
+func getAllI18nStringsBackend(fileContent string, isObjectPackage bool) []string {
 	res := []string{}
-	err := filepath.Walk(path,
+	if isObjectPackage {
+		matches := reI18nBackendObject.FindAllStringSubmatch(fileContent, -1)
+		if matches == nil {
+			return res
+		}
+		for _, match := range matches {
+			match := strings.SplitN(match[1], ",", 2)
+			target, err := strconv.Unquote("\"" + match[1][2:] + "\"")
+			if err != nil {
+				target = match[1][2:]
+			}
+
+			res = append(res, target)
+		}
+	} else {
+		matches := reI18nBackendController.FindAllStringSubmatch(fileContent, -1)
+		if matches == nil {
+			return res
+		}
+		for _, match := range matches {
+			target, err := strconv.Unquote("\"" + match[1][1:] + "\"")
+			if err != nil {
+				target = match[1][1:]
+			}
+			res = append(res, target)
+		}
+	}
+
+	return res
+}
+
+func getAllFilePathsInFolder(folder string, fileSuffix string) []string {
+	res := []string{}
+	err := filepath.Walk(folder,
 		func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 
-			if !strings.HasSuffix(info.Name(), ".js") {
+			if strings.HasSuffix(path, "node_modules") {
+				return filepath.SkipDir
+			}
+
+			if !strings.HasSuffix(info.Name(), fileSuffix) {
 				return nil
 			}
 
@@ -71,19 +117,32 @@ func getAllJsFilePaths() []string {
 	return res
 }
 
-func parseToData() *I18nData {
+func parseAllWords(category string) *I18nData {
+	var paths []string
+	if category == "backend" {
+		paths = getAllFilePathsInFolder("../", ".go")
+	} else {
+		paths = getAllFilePathsInFolder("../web/src", ".js")
+	}
+
 	allWords := []string{}
-	paths := getAllJsFilePaths()
 	for _, path := range paths {
 		fileContent := util.ReadStringFromPath(path)
-		words := getAllI18nStrings(fileContent)
+
+		var words []string
+		if category == "backend" {
+			isObjectPackage := strings.Contains(path, "object")
+			words = getAllI18nStringsBackend(fileContent, isObjectPackage)
+		} else {
+			words = getAllI18nStringsFrontend(fileContent)
+		}
 		allWords = append(allWords, words...)
 	}
 	fmt.Printf("%v\n", allWords)
 
 	data := I18nData{}
 	for _, word := range allWords {
-		tokens := strings.Split(word, ":")
+		tokens := strings.SplitN(word, ":", 2)
 		namespace := tokens[0]
 		key := tokens[1]
 
@@ -94,4 +153,28 @@ func parseToData() *I18nData {
 	}
 
 	return &data
+}
+
+// copyI18nData creates a deep copy of an I18nData structure to prevent shared reference issues
+// between language translations. This ensures each language starts with fresh English defaults
+// rather than inheriting values from previously processed languages.
+func copyI18nData(src *I18nData) *I18nData {
+	dst := I18nData{}
+	for namespace, pairs := range *src {
+		dst[namespace] = make(map[string]string)
+		for key, value := range pairs {
+			dst[namespace][key] = value
+		}
+	}
+	return &dst
+}
+
+func applyToOtherLanguage(category string, language string, newData *I18nData) {
+	oldData := readI18nFile(category, language)
+	println(oldData)
+
+	// Create a copy of newData to avoid modifying the shared data across languages
+	dataCopy := copyI18nData(newData)
+	applyData(dataCopy, oldData)
+	writeI18nFile(category, language, dataCopy)
 }

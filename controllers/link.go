@@ -21,14 +21,17 @@ import (
 )
 
 type LinkForm struct {
-	ProviderType string `json:"providerType"`
+	ProviderType string      `json:"providerType"`
+	User         object.User `json:"user"`
 }
 
 // Unlink ...
-// @router /unlink [post]
 // @Tag Login API
+// @Title Unlink
+// @router /unlink [post]
+// @Success 200 {object} object.Userinfo The Response object
 func (c *ApiController) Unlink() {
-	userId, ok := c.RequireSignedIn()
+	user, ok := c.RequireSignedInUser()
 	if !ok {
 		return
 	}
@@ -36,20 +39,72 @@ func (c *ApiController) Unlink() {
 	var form LinkForm
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &form)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 	providerType := form.ProviderType
 
-	user := object.GetUser(userId)
-	value := object.GetUserField(user, providerType)
+	// the user will be unlinked from the provider
+	unlinkedUser := form.User
 
-	if value == "" {
-		c.ResponseError("Please link first", value)
+	if user.Id != unlinkedUser.Id && !user.IsGlobalAdmin() {
+		// if the user is not the same as the one we are unlinking, we need to make sure the user is the global admin.
+		c.ResponseError(c.T("link:You are not the global admin, you can't unlink other users"))
 		return
 	}
 
-	object.ClearUserOAuthProperties(user, providerType)
+	if user.Id == unlinkedUser.Id && !user.IsGlobalAdmin() {
+		// if the user is unlinking themselves, should check the provider can be unlinked, if not, we should return an error.
+		application, err := object.GetApplicationByUser(user)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+		if application == nil {
+			c.ResponseError(c.T("link:You can't unlink yourself, you are not a member of any application"))
+			return
+		}
 
-	object.LinkUserAccount(user, providerType, "")
+		if len(application.Providers) == 0 {
+			c.ResponseError(c.T("link:This application has no providers"))
+			return
+		}
+
+		provider := application.GetProviderItemByType(providerType)
+		if provider == nil {
+			c.ResponseError(c.T("link:This application has no providers of type") + providerType)
+			return
+		}
+
+		if !provider.CanUnlink {
+			c.ResponseError(c.T("link:This provider can't be unlinked"))
+			return
+		}
+
+	}
+
+	// only two situations can happen here
+	// 1. the user is the global admin
+	// 2. the user is unlinking themselves and provider can be unlinked
+
+	value := object.GetUserField(&unlinkedUser, providerType)
+
+	if value == "" {
+		c.ResponseError(c.T("link:Please link first"), value)
+		return
+	}
+
+	_, err = object.ClearUserOAuthProperties(&unlinkedUser, providerType)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	_, err = object.LinkUserAccount(&unlinkedUser, providerType, "")
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
 	c.ResponseOk()
 }

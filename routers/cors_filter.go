@@ -17,35 +17,98 @@ package routers
 import (
 	"net/http"
 
-	"github.com/astaxie/beego/context"
+	"github.com/beego/beego/v2/server/web/context"
 	"github.com/casdoor/casdoor/conf"
 	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
 )
 
 const (
-	headerOrigin       = "Origin"
-	headerAllowOrigin  = "Access-Control-Allow-Origin"
-	headerAllowMethods = "Access-Control-Allow-Methods"
-	headerAllowHeaders = "Access-Control-Allow-Headers"
+	headerOrigin           = "Origin"
+	headerAllowOrigin      = "Access-Control-Allow-Origin"
+	headerAllowMethods     = "Access-Control-Allow-Methods"
+	headerAllowHeaders     = "Access-Control-Allow-Headers"
+	headerAllowCredentials = "Access-Control-Allow-Credentials"
 )
+
+func setCorsHeaders(ctx *context.Context, origin string) {
+	ctx.Output.Header(headerAllowOrigin, origin)
+	ctx.Output.Header(headerAllowMethods, "POST, GET, OPTIONS, DELETE")
+	ctx.Output.Header(headerAllowHeaders, "Content-Type, Authorization")
+	ctx.Output.Header(headerAllowCredentials, "true")
+
+	if ctx.Input.Method() == "OPTIONS" {
+		ctx.ResponseWriter.WriteHeader(http.StatusOK)
+	}
+}
 
 func CorsFilter(ctx *context.Context) {
 	origin := ctx.Input.Header(headerOrigin)
 	originConf := conf.GetConfigString("origin")
+	originHostname := getHostname(origin)
+	host := removePort(ctx.Request.Host)
 
-	if origin != "" && originConf != "" && origin != originConf {
-		if object.IsAllowOrigin(origin) {
-			ctx.Output.Header(headerAllowOrigin, origin)
-			ctx.Output.Header(headerAllowMethods, "POST, GET, OPTIONS")
-			ctx.Output.Header(headerAllowHeaders, "Content-Type, Authorization")
+	if origin == "null" {
+		origin = ""
+	}
+
+	isValid, err := util.IsValidOrigin(origin)
+	if err != nil {
+		ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
+		responseError(ctx, err.Error())
+		return
+	}
+	if isValid {
+		setCorsHeaders(ctx, origin)
+		return
+	}
+
+	if originHostname == "appleid.apple.com" {
+		setCorsHeaders(ctx, origin)
+		return
+	}
+
+	if ctx.Request.Method == "POST" && ctx.Request.RequestURI == "/api/login/oauth/access_token" {
+		setCorsHeaders(ctx, origin)
+		return
+	}
+
+	if ctx.Request.Method == "POST" && ctx.Request.RequestURI == "/api/acs" {
+		setCorsHeaders(ctx, origin)
+		return
+	}
+
+	if ctx.Request.RequestURI == "/api/userinfo" {
+		setCorsHeaders(ctx, origin)
+		return
+	}
+
+	if origin != "" {
+		if origin == originConf {
+			setCorsHeaders(ctx, origin)
+		} else if originHostname == host {
+			setCorsHeaders(ctx, origin)
+		} else if util.IsHostIntranet(host) {
+			setCorsHeaders(ctx, origin)
 		} else {
-			ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
-			return
-		}
+			ok, err := object.IsOriginAllowed(origin)
+			if err != nil {
+				panic(err)
+			}
 
-		if ctx.Input.Method() == "OPTIONS" {
-			ctx.ResponseWriter.WriteHeader(http.StatusOK)
-			return
+			if ok {
+				setCorsHeaders(ctx, origin)
+			} else {
+				ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
+				return
+			}
 		}
+	}
+
+	if ctx.Input.Method() == "OPTIONS" {
+		ctx.Output.Header(headerAllowOrigin, "*")
+		ctx.Output.Header(headerAllowMethods, "POST, GET, OPTIONS, DELETE")
+		ctx.ResponseWriter.WriteHeader(http.StatusOK)
+		return
 	}
 }

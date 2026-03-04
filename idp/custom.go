@@ -18,35 +18,43 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
-	_ "net/url"
-	_ "time"
+	"strings"
 
+	"github.com/casdoor/casdoor/util"
+	"github.com/mitchellh/mapstructure"
 	"golang.org/x/oauth2"
 )
 
 type CustomIdProvider struct {
-	Client      *http.Client
-	Config      *oauth2.Config
-	UserInfoUrl string
+	Client *http.Client
+	Config *oauth2.Config
+
+	UserInfoURL  string
+	TokenURL     string
+	AuthURL      string
+	UserMapping  map[string]string
+	Scopes       []string
+	CodeVerifier string
 }
 
-func NewCustomIdProvider(clientId string, clientSecret string, redirectUrl string, authUrl string, tokenUrl string, userInfoUrl string) *CustomIdProvider {
+func NewCustomIdProvider(idpInfo *ProviderInfo, redirectUrl string) *CustomIdProvider {
 	idp := &CustomIdProvider{}
-	idp.UserInfoUrl = userInfoUrl
 
-	var config = &oauth2.Config{
-		ClientID:     clientId,
-		ClientSecret: clientSecret,
+	idp.Config = &oauth2.Config{
+		ClientID:     idpInfo.ClientId,
+		ClientSecret: idpInfo.ClientSecret,
 		RedirectURL:  redirectUrl,
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  authUrl,
-			TokenURL: tokenUrl,
+			AuthURL:  idpInfo.AuthURL,
+			TokenURL: idpInfo.TokenURL,
 		},
 	}
-	idp.Config = config
+	idp.UserInfoURL = idpInfo.UserInfoURL
+	idp.UserMapping = idpInfo.UserMapping
 
+	idp.CodeVerifier = idpInfo.CodeVerifier
 	return idp
 }
 
@@ -56,27 +64,49 @@ func (idp *CustomIdProvider) SetHttpClient(client *http.Client) {
 
 func (idp *CustomIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, idp.Client)
-	return idp.Config.Exchange(ctx, code)
+	var oauth2Opts []oauth2.AuthCodeOption
+	if idp.CodeVerifier != "" {
+		oauth2Opts = append(oauth2Opts, oauth2.VerifierOption(idp.CodeVerifier))
+	}
+	return idp.Config.Exchange(ctx, code, oauth2Opts...)
+}
+
+func getNestedValue(data map[string]interface{}, path string) (interface{}, error) {
+	keys := strings.Split(path, ".")
+	var val interface{} = data
+
+	for _, key := range keys {
+		m, ok := val.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("path '%s' is not valid: %s is not a map", path, key)
+		}
+
+		val, ok = m[key]
+		if !ok {
+			return nil, fmt.Errorf("key '%s' not found in path '%s'", key, path)
+		}
+	}
+
+	return val, nil
 }
 
 type CustomUserInfo struct {
-	Id          string `json:"sub"`
-	Name        string `json:"name"`
-	DisplayName string `json:"preferred_username"`
-	Email       string `json:"email"`
-	AvatarUrl   string `json:"picture"`
-	Status      string `json:"status"`
-	Msg         string `json:"msg"`
+	Id          string `mapstructure:"id"`
+	Username    string `mapstructure:"username"`
+	DisplayName string `mapstructure:"displayName"`
+	Email       string `mapstructure:"email"`
+	AvatarUrl   string `mapstructure:"avatarUrl"`
+	Phone       string `mapstructure:"phone"`
 }
 
 func (idp *CustomIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error) {
-	ctUserinfo := &CustomUserInfo{}
 	accessToken := token.AccessToken
-	request, err := http.NewRequest("GET", idp.UserInfoUrl, nil)
+	request, err := http.NewRequest("GET", idp.UserInfoURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	//add accessToken to request header
+
+	// add accessToken to request header
 	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 	resp, err := idp.Client.Do(request)
 	if err != nil {
@@ -84,26 +114,54 @@ func (idp *CustomIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error)
 	}
 	defer resp.Body.Close()
 
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	err = json.Unmarshal(data, ctUserinfo)
+	var dataMap map[string]interface{}
+	err = json.Unmarshal(data, &dataMap)
 	if err != nil {
 		return nil, err
 	}
 
-	if ctUserinfo.Status != "" {
-		return nil, fmt.Errorf("err: %s", ctUserinfo.Msg)
+	requiredFields := []string{"id", "username", "displayName"}
+	for _, field := range requiredFields {
+		_, ok := idp.UserMapping[field]
+		if !ok {
+			return nil, fmt.Errorf("cannot find %s in userMapping, please check your configuration in custom provider", field)
+		}
+	}
+
+	// map user info
+	for k, v := range idp.UserMapping {
+		val, err := getNestedValue(dataMap, v)
+		if err != nil {
+			return nil, fmt.Errorf("cannot find %s in user from custom provider: %v", v, err)
+		}
+		dataMap[k] = val
+	}
+
+	// try to parse id to string
+	id, err := util.ParseIdToString(dataMap["id"])
+	if err != nil {
+		return nil, err
+	}
+	dataMap["id"] = id
+
+	customUserinfo := &CustomUserInfo{}
+	err = mapstructure.Decode(dataMap, customUserinfo)
+	if err != nil {
+		return nil, err
 	}
 
 	userInfo := &UserInfo{
-		Id:          ctUserinfo.Id,
-		Username:    ctUserinfo.Name,
-		DisplayName: ctUserinfo.DisplayName,
-		Email:       ctUserinfo.Email,
-		AvatarUrl:   ctUserinfo.AvatarUrl,
+		Id:          customUserinfo.Id,
+		Username:    customUserinfo.Username,
+		DisplayName: customUserinfo.DisplayName,
+		Email:       customUserinfo.Email,
+		Phone:       customUserinfo.Phone,
+		AvatarUrl:   customUserinfo.AvatarUrl,
 	}
 	return userInfo, nil
 }

@@ -17,8 +17,9 @@ package object
 import (
 	"fmt"
 
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
-	"xorm.io/core"
+	"github.com/xorm-io/core"
 )
 
 type Header struct {
@@ -33,109 +34,117 @@ type Webhook struct {
 
 	Organization string `xorm:"varchar(100) index" json:"organization"`
 
-	Url            string    `xorm:"varchar(100)" json:"url"`
+	Url            string    `xorm:"varchar(200)" json:"url"`
 	Method         string    `xorm:"varchar(100)" json:"method"`
 	ContentType    string    `xorm:"varchar(100)" json:"contentType"`
 	Headers        []*Header `xorm:"mediumtext" json:"headers"`
-	Events         []string  `xorm:"varchar(100)" json:"events"`
+	Events         []string  `xorm:"varchar(1000)" json:"events"`
+	TokenFields    []string  `xorm:"varchar(1000)" json:"tokenFields"`
+	ObjectFields   []string  `xorm:"varchar(1000)" json:"objectFields"`
 	IsUserExtended bool      `json:"isUserExtended"`
+	SingleOrgOnly  bool      `json:"singleOrgOnly"`
 	IsEnabled      bool      `json:"isEnabled"`
 }
 
-func GetWebhookCount(owner, field, value string) int {
+func GetWebhookCount(owner, organization, field, value string) (int64, error) {
 	session := GetSession(owner, -1, -1, field, value, "", "")
-	count, err := session.Count(&Webhook{})
-	if err != nil {
-		panic(err)
-	}
-
-	return int(count)
+	return session.Count(&Webhook{Organization: organization})
 }
 
-func GetWebhooks(owner string) []*Webhook {
+func GetWebhooks(owner string, organization string) ([]*Webhook, error) {
 	webhooks := []*Webhook{}
-	err := adapter.Engine.Desc("created_time").Find(&webhooks, &Webhook{Owner: owner})
+	err := ormer.Engine.Desc("created_time").Find(&webhooks, &Webhook{Owner: owner, Organization: organization})
 	if err != nil {
-		panic(err)
+		return webhooks, err
 	}
 
-	return webhooks
+	return webhooks, nil
 }
 
-func GetPaginationWebhooks(owner string, offset, limit int, field, value, sortField, sortOrder string) []*Webhook {
+func GetPaginationWebhooks(owner, organization string, offset, limit int, field, value, sortField, sortOrder string) ([]*Webhook, error) {
 	webhooks := []*Webhook{}
 	session := GetSession(owner, offset, limit, field, value, sortField, sortOrder)
-	err := session.Find(&webhooks)
+	err := session.Find(&webhooks, &Webhook{Organization: organization})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	return webhooks
+	return webhooks, nil
 }
 
-func getWebhooksByOrganization(organization string) []*Webhook {
+func getWebhooksByOrganization(organization string) ([]*Webhook, error) {
 	webhooks := []*Webhook{}
-	err := adapter.Engine.Desc("created_time").Find(&webhooks, &Webhook{Organization: organization})
+	err := ormer.Engine.Desc("created_time").Find(&webhooks, &Webhook{Organization: organization})
 	if err != nil {
-		panic(err)
+		return webhooks, err
 	}
 
-	return webhooks
+	return webhooks, nil
 }
 
-func getWebhook(owner string, name string) *Webhook {
+func getWebhook(owner string, name string) (*Webhook, error) {
 	if owner == "" || name == "" {
-		return nil
+		return nil, nil
 	}
 
 	webhook := Webhook{Owner: owner, Name: name}
-	existed, err := adapter.Engine.Get(&webhook)
+	existed, err := ormer.Engine.Get(&webhook)
 	if err != nil {
-		panic(err)
+		return &webhook, err
 	}
 
 	if existed {
-		return &webhook
+		return &webhook, nil
 	} else {
-		return nil
+		return nil, nil
 	}
 }
 
-func GetWebhook(id string) *Webhook {
-	owner, name := util.GetOwnerAndNameFromId(id)
+func GetWebhook(id string) (*Webhook, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return nil, err
+	}
 	return getWebhook(owner, name)
 }
 
-func UpdateWebhook(id string, webhook *Webhook) bool {
-	owner, name := util.GetOwnerAndNameFromId(id)
-	if getWebhook(owner, name) == nil {
-		return false
-	}
-
-	affected, err := adapter.Engine.ID(core.PK{owner, name}).AllCols().Update(webhook)
+func UpdateWebhook(id string, webhook *Webhook, isGlobalAdmin bool, lang string) (bool, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
 	if err != nil {
-		panic(err)
+		return false, err
+	}
+	if w, err := getWebhook(owner, name); err != nil {
+		return false, err
+	} else if w == nil {
+		return false, nil
+	} else if !isGlobalAdmin && w.Organization != webhook.Organization {
+		return false, fmt.Errorf(i18n.Translate(lang, "auth:Unauthorized operation"))
 	}
 
-	return affected != 0
+	affected, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(webhook)
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
 }
 
-func AddWebhook(webhook *Webhook) bool {
-	affected, err := adapter.Engine.Insert(webhook)
+func AddWebhook(webhook *Webhook) (bool, error) {
+	affected, err := ormer.Engine.Insert(webhook)
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
-	return affected != 0
+	return affected != 0, nil
 }
 
-func DeleteWebhook(webhook *Webhook) bool {
-	affected, err := adapter.Engine.ID(core.PK{webhook.Owner, webhook.Name}).Delete(&Webhook{})
+func DeleteWebhook(webhook *Webhook) (bool, error) {
+	affected, err := ormer.Engine.ID(core.PK{webhook.Owner, webhook.Name}).Where("organization = ?", webhook.Organization).Delete(&Webhook{})
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
-	return affected != 0
+	return affected != 0, nil
 }
 
 func (p *Webhook) GetId() string {

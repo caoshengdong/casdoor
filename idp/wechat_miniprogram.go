@@ -17,7 +17,7 @@ package idp
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	"golang.org/x/oauth2"
@@ -42,7 +42,7 @@ func (idp *WeChatMiniProgramIdProvider) SetHttpClient(client *http.Client) {
 }
 
 func (idp *WeChatMiniProgramIdProvider) getConfig(clientId string, clientSecret string) *oauth2.Config {
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		ClientID:     clientId,
 		ClientSecret: clientSecret,
 	}
@@ -65,7 +65,7 @@ func (idp *WeChatMiniProgramIdProvider) GetSessionByCode(code string) (*WeChatMi
 		return nil, err
 	}
 	defer sessionResponse.Body.Close()
-	data, err := ioutil.ReadAll(sessionResponse.Body)
+	data, err := io.ReadAll(sessionResponse.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -78,5 +78,4 @@ func (idp *WeChatMiniProgramIdProvider) GetSessionByCode(code string) (*WeChatMi
 		return nil, fmt.Errorf("err: %s", session.Errmsg)
 	}
 	return &session, nil
-
 }

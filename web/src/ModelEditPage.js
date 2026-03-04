@@ -13,12 +13,12 @@
 // limitations under the License.
 
 import React from "react";
-import {Button, Card, Col, Input, Row, Select, Switch} from "antd";
+import {Button, Card, Col, Input, Row, Select} from "antd";
 import * as ModelBackend from "./backend/ModelBackend";
 import * as OrganizationBackend from "./backend/OrganizationBackend";
 import * as Setting from "./Setting";
 import i18next from "i18next";
-import TextArea from "antd/es/input/TextArea";
+import ModelEditor from "./CasbinEditor";
 
 const {Option} = Select;
 
@@ -32,7 +32,6 @@ class ModelEditPage extends React.Component {
       model: null,
       organizations: [],
       users: [],
-      models: [],
       mode: props.location.mode !== undefined ? props.location.mode : "edit",
     };
   }
@@ -44,12 +43,20 @@ class ModelEditPage extends React.Component {
 
   getModel() {
     ModelBackend.getModel(this.state.organizationName, this.state.modelName)
-      .then((model) => {
-        this.setState({
-          model: model,
-        });
+      .then((res) => {
+        if (res.data === null) {
+          this.props.history.push("/404");
+          return;
+        }
 
-        this.getModels(model.owner);
+        if (res.status === "error") {
+          Setting.showMessage("error", res.msg);
+          return;
+        }
+
+        this.setState({
+          model: res.data,
+        });
       });
   }
 
@@ -57,16 +64,7 @@ class ModelEditPage extends React.Component {
     OrganizationBackend.getOrganizations("admin")
       .then((res) => {
         this.setState({
-          organizations: (res.msg === undefined) ? res : [],
-        });
-      });
-  }
-
-  getModels(organizationName) {
-    ModelBackend.getModels(organizationName)
-      .then((res) => {
-        this.setState({
-          models: res,
+          organizations: res.data || [],
         });
       });
   }
@@ -81,7 +79,7 @@ class ModelEditPage extends React.Component {
   updateModelField(key, value) {
     value = this.parseModelField(key, value);
 
-    let model = this.state.model;
+    const model = this.state.model;
     model[key] = value;
     this.setState({
       model: model,
@@ -97,13 +95,13 @@ class ModelEditPage extends React.Component {
           <Button style={{marginLeft: "20px"}} type="primary" onClick={() => this.submitModelEdit(true)}>{i18next.t("general:Save & Exit")}</Button>
           {this.state.mode === "add" ? <Button style={{marginLeft: "20px"}} onClick={() => this.deleteModel()}>{i18next.t("general:Cancel")}</Button> : null}
         </div>
-      } style={(Setting.isMobile())? {margin: "5px"}:{}} type="inner">
+      } style={(Setting.isMobile()) ? {margin: "5px"} : {}} type="inner">
         <Row style={{marginTop: "10px"}} >
           <Col style={{marginTop: "5px"}} span={(Setting.isMobile()) ? 22 : 2}>
             {Setting.getLabel(i18next.t("general:Organization"), i18next.t("general:Organization - Tooltip"))} :
           </Col>
           <Col span={22} >
-            <Select virtual={false} style={{width: "100%"}} value={this.state.model.owner} onChange={(value => {this.updateModelField("owner", value);})}>
+            <Select virtual={false} style={{width: "100%"}} disabled={!Setting.isAdminUser(this.props.account) || Setting.builtInObject(this.state.model)} value={this.state.model.owner} onChange={(value => {this.updateModelField("owner", value);})}>
               {
                 this.state.organizations.map((organization, index) => <Option key={index} value={organization.name}>{organization.name}</Option>)
               }
@@ -115,7 +113,7 @@ class ModelEditPage extends React.Component {
             {Setting.getLabel(i18next.t("general:Name"), i18next.t("general:Name - Tooltip"))} :
           </Col>
           <Col span={22} >
-            <Input value={this.state.model.name} onChange={e => {
+            <Input disabled={Setting.builtInObject(this.state.model)} value={this.state.model.name} onChange={e => {
               this.updateModelField("name", e.target.value);
             }} />
           </Col>
@@ -132,60 +130,67 @@ class ModelEditPage extends React.Component {
         </Row>
         <Row style={{marginTop: "20px"}} >
           <Col style={{marginTop: "5px"}} span={(Setting.isMobile()) ? 22 : 2}>
-            {Setting.getLabel(i18next.t("model:Model text"), i18next.t("model:Model text - Tooltip"))} :
+            {Setting.getLabel(i18next.t("general:Description"), i18next.t("general:Description - Tooltip"))} :
           </Col>
-          <Col span={22}>
-            <TextArea rows={10} value={this.state.model.modelText} onChange={e => {
-              this.updateModelField("modelText", e.target.value);
+          <Col span={22} >
+            <Input value={this.state.model.description} onChange={e => {
+              this.updateModelField("description", e.target.value);
             }} />
           </Col>
         </Row>
         <Row style={{marginTop: "20px"}} >
-          <Col style={{marginTop: "5px"}} span={(Setting.isMobile()) ? 19 : 2}>
-            {Setting.getLabel(i18next.t("general:Is enabled"), i18next.t("general:Is enabled - Tooltip"))} :
+          <Col style={{marginTop: "5px"}} span={(Setting.isMobile()) ? 22 : 2}>
+            {Setting.getLabel(i18next.t("model:Model text"), i18next.t("model:Model text - Tooltip"))} :
           </Col>
-          <Col span={1} >
-            <Switch checked={this.state.model.isEnabled} onChange={checked => {
-              this.updateModelField("isEnabled", checked);
-            }} />
+          <Col span={22}>
+            <div style={{position: "relative", height: "500px"}} >
+              <ModelEditor
+                model={this.state.model}
+                onModelTextChange={(value) => this.updateModelField("modelText", value)}
+              />
+            </div>
           </Col>
         </Row>
       </Card>
     );
   }
 
-  submitModelEdit(willExist) {
-    let model = Setting.deepCopy(this.state.model);
+  submitModelEdit(exitAfterSave) {
+    const model = Setting.deepCopy(this.state.model);
     ModelBackend.updateModel(this.state.organizationName, this.state.modelName, model)
       .then((res) => {
-        if (res.msg === "") {
-          Setting.showMessage("success", "Successfully saved");
+        if (res.status === "ok") {
+          Setting.showMessage("success", i18next.t("general:Successfully saved"));
           this.setState({
             modelName: this.state.model.name,
           });
 
-          if (willExist) {
+          if (exitAfterSave) {
             this.props.history.push("/models");
           } else {
             this.props.history.push(`/models/${this.state.model.owner}/${this.state.model.name}`);
           }
         } else {
-          Setting.showMessage("error", res.msg);
+          Setting.showMessage("error", `${i18next.t("general:Failed to save")}: ${res.msg}`);
           this.updateModelField("name", this.state.modelName);
         }
       })
       .catch(error => {
-        Setting.showMessage("error", `Failed to connect to server: ${error}`);
+        Setting.showMessage("error", `${i18next.t("general:Failed to connect to server")}: ${error}`);
       });
   }
 
   deleteModel() {
     ModelBackend.deleteModel(this.state.model)
-      .then(() => {
-        this.props.history.push("/models");
+      .then((res) => {
+        if (res.status === "ok") {
+          this.props.history.push("/models");
+        } else {
+          Setting.showMessage("error", `${i18next.t("general:Failed to delete")}: ${res.msg}`);
+        }
       })
       .catch(error => {
-        Setting.showMessage("error", `Model failed to delete: ${error}`);
+        Setting.showMessage("error", `${i18next.t("general:Failed to connect to server")}: ${error}`);
       });
   }
 

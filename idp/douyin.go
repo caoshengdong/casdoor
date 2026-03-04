@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -42,12 +42,12 @@ func (idp *DouyinIdProvider) SetHttpClient(client *http.Client) {
 }
 
 func (idp *DouyinIdProvider) getConfig(clientId string, clientSecret string, redirectUrl string) *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
+	endpoint := oauth2.Endpoint{
 		TokenURL: "https://open.douyin.com/oauth/access_token",
 		AuthURL:  "https://open.douyin.com/platform/oauth/connect",
 	}
 
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		Scopes:       []string{"user_info"},
 		Endpoint:     endpoint,
 		ClientID:     clientId,
@@ -98,7 +98,7 @@ func (idp *DouyinIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +177,7 @@ func (idp *DouyinIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error)
 
 	defer resp.Body.Close()
 
-	respBody, err := ioutil.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func (idp *DouyinIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error)
 
 	userInfo := UserInfo{
 		Id:          douyinUserInfo.Data.OpenId,
-		Username:    douyinUserInfo.Data.Nickname,
+		Username:    douyinUserInfo.Data.OpenId,
 		DisplayName: douyinUserInfo.Data.Nickname,
 		AvatarUrl:   douyinUserInfo.Data.Avatar,
 	}

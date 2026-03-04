@@ -14,30 +14,49 @@
 
 import React from "react";
 import {Link} from "react-router-dom";
-import {Button, Col, List, Popconfirm, Row, Table, Tooltip} from "antd";
+import {Button, Col, List, Row, Table, Tooltip} from "antd";
 import {EditOutlined} from "@ant-design/icons";
 import moment from "moment";
 import * as Setting from "./Setting";
 import * as ApplicationBackend from "./backend/ApplicationBackend";
 import i18next from "i18next";
 import BaseListPage from "./BaseListPage";
+import PopconfirmModal from "./common/modal/PopconfirmModal";
+import {SignupTableDefaultCssMap} from "./table/SignupTable";
 
 class ApplicationListPage extends BaseListPage {
+  constructor(props) {
+    super(props);
+  }
+
   newApplication() {
     const randomName = Setting.getRandomName();
+    const organizationName = Setting.getRequestOrganization(this.props.account);
     return {
-      owner: "admin", // this.props.account.applicationname,
+      owner: "admin", // this.props.account.applicationName,
       name: `application_${randomName}`,
+      organization: organizationName,
       createdTime: moment().format(),
       displayName: `New Application - ${randomName}`,
-      logo: "https://cdn.casdoor.com/logo/casdoor-logo_1185x256.png",
+      category: "Default",
+      type: "All",
+      scopes: [],
+      logo: `${Setting.StaticBaseUrl}/img/casdoor-logo_1185x256.png`,
       enablePassword: true,
       enableSignUp: true,
+      disableSignin: false,
       enableSigninSession: false,
       enableCodeSignin: false,
       enableSamlCompress: false,
+      disableSamlAttributes: false,
       providers: [
-        {name: "provider_captcha_default", canSignUp: false, canSignIn: false, canUnlink: false, prompted: false, alertType: "None"},
+        {name: "provider_captcha_default", canSignUp: false, canSignIn: false, canUnlink: false, prompted: false, signupGroup: "", rule: ""},
+      ],
+      SigninMethods: [
+        {name: "Password", displayName: "Password", rule: "All"},
+        {name: "Verification code", displayName: "Verification code", rule: "All"},
+        {name: "WebAuthn", displayName: "WebAuthn", rule: "None"},
+        {name: "Face ID", displayName: "Face ID", rule: "None"},
       ],
       signupItems: [
         {name: "ID", visible: false, required: true, rule: "Random"},
@@ -48,11 +67,18 @@ class ApplicationListPage extends BaseListPage {
         {name: "Email", visible: true, required: true, rule: "Normal"},
         {name: "Phone", visible: true, required: true, rule: "None"},
         {name: "Agreement", visible: true, required: true, rule: "None"},
+        {name: "Signup button", visible: true, required: true, rule: "None"},
+        {name: "Providers", visible: true, required: true, rule: "None", customCss: SignupTableDefaultCssMap["Providers"]},
       ],
+      grantTypes: ["authorization_code", "password", "client_credentials", "token", "id_token", "refresh_token"],
       cert: "cert-built-in",
       redirectUris: ["http://localhost:9000/callback"],
       tokenFormat: "JWT",
+      tokenFields: [],
       expireInHours: 24 * 7,
+      refreshExpireInHours: 24 * 7,
+      cookieExpireInHours: 24 * 30,
+      formOffset: 2,
     };
   }
 
@@ -60,26 +86,63 @@ class ApplicationListPage extends BaseListPage {
     const newApplication = this.newApplication();
     ApplicationBackend.addApplication(newApplication)
       .then((res) => {
-        this.props.history.push({pathname: `/applications/${newApplication.name}`, mode: "add"});
-      }
-      )
+        if (res.status === "ok") {
+          this.props.history.push({pathname: `/applications/${newApplication.organization}/${newApplication.name}`, mode: "add"});
+          Setting.showMessage("success", i18next.t("general:Successfully added"));
+        } else {
+          Setting.showMessage("error", `${i18next.t("general:Failed to add")}: ${res.msg}`);
+        }
+      })
       .catch(error => {
-        Setting.showMessage("error", `Application failed to add: ${error}`);
+        Setting.showMessage("error", `${i18next.t("general:Failed to connect to server")}: ${error}`);
       });
   }
 
   deleteApplication(i) {
     ApplicationBackend.deleteApplication(this.state.data[i])
       .then((res) => {
-        Setting.showMessage("success", "Application deleted successfully");
-        this.setState({
-          data: Setting.deleteRow(this.state.data, i),
-          pagination: {total: this.state.pagination.total - 1},
-        });
-      }
-      )
+        if (res.status === "ok") {
+          Setting.showMessage("success", i18next.t("general:Successfully deleted"));
+          this.fetch({
+            pagination: {
+              ...this.state.pagination,
+              current: this.state.pagination.current > 1 && this.state.data.length === 1 ? this.state.pagination.current - 1 : this.state.pagination.current,
+            },
+          });
+        } else {
+          Setting.showMessage("error", `${i18next.t("general:Failed to delete")}: ${res.msg}`);
+        }
+      })
       .catch(error => {
-        Setting.showMessage("error", `Application failed to delete: ${error}`);
+        Setting.showMessage("error", `${i18next.t("general:Failed to connect to server")}: ${error}`);
+      });
+  }
+
+  copyApplication(i) {
+    const original = this.state.data[i];
+    const randomSuffix = Setting.getRandomName();
+    const newName = `${original.name}_${randomSuffix}`;
+
+    const copiedApplication = {
+      ...original,
+      name: newName,
+      createdTime: moment().format(),
+      displayName: "Copy Application - " + newName,
+      clientId: "",
+      clientSecret: "",
+    };
+
+    ApplicationBackend.addApplication(copiedApplication)
+      .then((res) => {
+        if (res.status === "ok") {
+          this.props.history.push({pathname: `/applications/${copiedApplication.organization}/${newName}`, mode: "add"});
+          Setting.showMessage("success", i18next.t("general:Successfully copied"));
+        } else {
+          Setting.showMessage("error", `${i18next.t("general:Failed to copy")}: ${res.msg}`);
+        }
+      })
+      .catch(error => {
+        Setting.showMessage("error", `${i18next.t("general:Failed to connect to server")}: ${error}`);
       });
   }
 
@@ -95,11 +158,11 @@ class ApplicationListPage extends BaseListPage {
         ...this.getColumnSearchProps("name"),
         render: (text, record, index) => {
           return (
-            <Link to={`/applications/${text}`}>
-              {text}
+            <Link to={`/applications/${record.organization}/${text}`}>
+              {Setting.getApplicationDisplayName(record)}
             </Link>
           );
-        }
+        },
       },
       {
         title: i18next.t("general:Created time"),
@@ -109,7 +172,7 @@ class ApplicationListPage extends BaseListPage {
         sorter: true,
         render: (text, record, index) => {
           return Setting.getFormattedDate(text);
-        }
+        },
       },
       {
         title: i18next.t("general:Display name"),
@@ -118,6 +181,36 @@ class ApplicationListPage extends BaseListPage {
         // width: '100px',
         sorter: true,
         ...this.getColumnSearchProps("displayName"),
+      },
+      {
+        title: i18next.t("general:Category"),
+        dataIndex: "category",
+        key: "category",
+        width: "120px",
+        sorter: true,
+        ...this.getColumnSearchProps("category"),
+        render: (text, record, index) => {
+          if (!text) {
+            text = "Default";
+          }
+
+          if (text === "Agent") {
+            return Setting.getTag("success", text);
+          } else {
+            return Setting.getTag("default", text);
+          }
+        },
+      },
+      {
+        title: i18next.t("general:Type"),
+        dataIndex: "type",
+        key: "type",
+        width: "100px",
+        sorter: true,
+        ...this.getColumnSearchProps("type"),
+        render: (text, record, index) => {
+          return text;
+        },
       },
       {
         title: "Logo",
@@ -130,7 +223,7 @@ class ApplicationListPage extends BaseListPage {
               <img src={text} alt={text} width={150} />
             </a>
           );
-        }
+        },
       },
       {
         title: i18next.t("general:Organization"),
@@ -145,18 +238,18 @@ class ApplicationListPage extends BaseListPage {
               {text}
             </Link>
           );
-        }
+        },
       },
       {
-        title: i18next.t("general:Providers"),
+        title: i18next.t("application:Providers"),
         dataIndex: "providers",
         key: "providers",
         ...this.getColumnSearchProps("providers"),
         // width: '600px',
         render: (text, record, index) => {
           const providers = text;
-          if (providers.length === 0) {
-            return "(empty)";
+          if (providers === null || providers.length === 0) {
+            return `(${i18next.t("general:empty")})`;
           }
 
           const half = Math.floor((providers.length + 1) / 2);
@@ -172,9 +265,9 @@ class ApplicationListPage extends BaseListPage {
                     <List.Item>
                       <div style={{display: "inline"}}>
                         <Tooltip placement="topLeft" title="Edit">
-                          <Button style={{marginRight: "5px"}} icon={<EditOutlined />} size="small" onClick={() => Setting.goToLinkSoft(this, `/providers/${providerItem.name}`)} />
+                          <Button style={{marginRight: "5px"}} icon={<EditOutlined />} size="small" onClick={() => Setting.goToLinkSoft(this, `/providers/${record.organization}/${providerItem.name}`)} />
                         </Tooltip>
-                        <Link to={`/providers/${providerItem.name}`}>
+                        <Link to={`/providers/${record.organization}/${providerItem.name}`}>
                           {providerItem.name}
                         </Link>
                       </div>
@@ -207,25 +300,26 @@ class ApplicationListPage extends BaseListPage {
         title: i18next.t("general:Action"),
         dataIndex: "",
         key: "op",
-        width: "170px",
+        width: "230px",
         fixed: (Setting.isMobile()) ? "false" : "right",
         render: (text, record, index) => {
           return (
             <div>
-              <Button style={{marginTop: "10px", marginBottom: "10px", marginRight: "10px"}} type="primary" onClick={() => this.props.history.push(`/applications/${record.name}`)}>{i18next.t("general:Edit")}</Button>
-              <Popconfirm
-                title={`Sure to delete application: ${record.name} ?`}
+              <Button style={{marginTop: "10px", marginBottom: "10px", marginRight: "10px"}} type="primary" onClick={() => this.props.history.push(`/applications/${record.organization}/${record.name}`)}>{i18next.t("general:Edit")}</Button>
+              <Button style={{marginTop: "10px", marginBottom: "10px", marginRight: "10px"}} onClick={() => this.copyApplication(index)}>{i18next.t("general:Copy")}</Button>
+              <PopconfirmModal
+                title={i18next.t("general:Sure to delete") + `: ${record.name} ?`}
                 onConfirm={() => this.deleteApplication(index)}
                 disabled={record.name === "app-built-in"}
               >
-                <Button style={{marginBottom: "10px"}} disabled={record.name === "app-built-in"} type="danger">{i18next.t("general:Delete")}</Button>
-              </Popconfirm>
+              </PopconfirmModal>
             </div>
           );
-        }
+        },
       },
     ];
 
+    const filteredColumns = Setting.filterTableColumns(columns, this.props.formItems ?? this.state.formItems);
     const paginationProps = {
       total: this.state.pagination.total,
       showQuickJumper: true,
@@ -235,7 +329,7 @@ class ApplicationListPage extends BaseListPage {
 
     return (
       <div>
-        <Table scroll={{x: "max-content"}} columns={columns} dataSource={applications} rowKey="name" size="middle" bordered pagination={paginationProps}
+        <Table scroll={{x: "max-content"}} columns={filteredColumns} dataSource={applications} rowKey={(record) => `${record.owner}/${record.name}`} size="middle" bordered pagination={paginationProps}
           title={() => (
             <div>
               {i18next.t("general:Applications")}&nbsp;&nbsp;&nbsp;&nbsp;
@@ -250,14 +344,17 @@ class ApplicationListPage extends BaseListPage {
   }
 
   fetch = (params = {}) => {
-    let field = params.searchedColumn, value = params.searchText;
-    let sortField = params.sortField, sortOrder = params.sortOrder;
+    const field = params.searchedColumn, value = params.searchText;
+    const sortField = params.sortField, sortOrder = params.sortOrder;
     this.setState({loading: true});
-    ApplicationBackend.getApplications("admin", params.pagination.current, params.pagination.pageSize, field, value, sortField, sortOrder)
+    (Setting.isDefaultOrganizationSelected(this.props.account) ? ApplicationBackend.getApplications("admin", params.pagination.current, params.pagination.pageSize, field, value, sortField, sortOrder) :
+      ApplicationBackend.getApplicationsByOrganization("admin", Setting.getRequestOrganization(this.props.account), params.pagination.current, params.pagination.pageSize, field, value, sortField, sortOrder))
       .then((res) => {
+        this.setState({
+          loading: false,
+        });
         if (res.status === "ok") {
           this.setState({
-            loading: false,
             data: res.data,
             pagination: {
               ...params.pagination,
@@ -266,6 +363,14 @@ class ApplicationListPage extends BaseListPage {
             searchText: params.searchText,
             searchedColumn: params.searchedColumn,
           });
+        } else {
+          if (Setting.isResponseDenied(res)) {
+            this.setState({
+              isAuthorized: false,
+            });
+          } else {
+            Setting.showMessage("error", res.msg);
+          }
         }
       });
   };

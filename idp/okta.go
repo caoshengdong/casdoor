@@ -17,7 +17,7 @@ package idp
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -48,12 +48,12 @@ func (idp *OktaIdProvider) SetHttpClient(client *http.Client) {
 }
 
 func (idp *OktaIdProvider) getConfig(hostUrl string, clientId string, clientSecret string, redirectUrl string) *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
+	endpoint := oauth2.Endpoint{
 		TokenURL: fmt.Sprintf("%s/v1/token", hostUrl),
 		AuthURL:  fmt.Sprintf("%s/v1/authorize", hostUrl),
 	}
 
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		// openid is required for authentication requests
 		// get more details via: https://developer.okta.com/docs/reference/api/oidc/#reserved-scopes
 		Scopes:       []string{"openid", "profile", "email"},
@@ -114,7 +114,7 @@ func (idp *OktaIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,14 @@ func (idp *OktaIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error) {
 
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// First unmarshal into a map to capture all claims
+	var rawClaims map[string]interface{}
+	err = json.Unmarshal(body, &rawClaims)
 	if err != nil {
 		return nil, err
 	}
@@ -189,12 +196,34 @@ func (idp *OktaIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error) {
 		return nil, err
 	}
 
+	// Convert raw claims to string map for Extra field
+	extra := make(map[string]string)
+	for k, v := range rawClaims {
+		if v != nil {
+			// Convert to string representation
+			switch val := v.(type) {
+			case string:
+				extra[k] = val
+			case float64:
+				extra[k] = fmt.Sprintf("%v", val)
+			case bool:
+				extra[k] = fmt.Sprintf("%v", val)
+			default:
+				// For complex types, marshal to JSON string
+				if jsonVal, err := json.Marshal(val); err == nil {
+					extra[k] = string(jsonVal)
+				}
+			}
+		}
+	}
+
 	userInfo := UserInfo{
 		Id:          oktaUserInfo.Sub,
 		Username:    oktaUserInfo.PreferredUsername,
 		DisplayName: oktaUserInfo.Name,
 		Email:       oktaUserInfo.Email,
 		AvatarUrl:   oktaUserInfo.Picture,
+		Extra:       extra,
 	}
 	return &userInfo, nil
 }

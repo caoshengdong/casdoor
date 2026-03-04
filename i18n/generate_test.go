@@ -12,26 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !skipCi
+
 package i18n
 
 import "testing"
 
-func applyToOtherLanguage(dataEn *I18nData, lang string) {
-	dataOther := readI18nFile(lang)
-	println(dataOther)
+func TestGenerateI18nFrontend(t *testing.T) {
+	data := parseAllWords("frontend")
 
-	applyData(dataEn, dataOther)
-	writeI18nFile(lang, dataEn)
+	applyToOtherLanguage("frontend", "en", data)
+	applyToOtherLanguage("frontend", "es", data)
+	applyToOtherLanguage("frontend", "fr", data)
+	applyToOtherLanguage("frontend", "de", data)
+	applyToOtherLanguage("frontend", "ja", data)
+	applyToOtherLanguage("frontend", "zh", data)
+	applyToOtherLanguage("frontend", "vi", data)
+	applyToOtherLanguage("frontend", "pt", data)
+	applyToOtherLanguage("frontend", "tr", data)
+	applyToOtherLanguage("frontend", "pl", data)
+	applyToOtherLanguage("frontend", "uk", data)
 }
 
-func TestGenerateI18nStrings(t *testing.T) {
-	dataEn := parseToData()
-	writeI18nFile("en", dataEn)
+func TestGenerateI18nBackend(t *testing.T) {
+	data := parseAllWords("backend")
 
-	applyToOtherLanguage(dataEn, "de")
-	applyToOtherLanguage(dataEn, "fr")
-	applyToOtherLanguage(dataEn, "ja")
-	applyToOtherLanguage(dataEn, "ko")
-	applyToOtherLanguage(dataEn, "ru")
-	applyToOtherLanguage(dataEn, "zh")
+	applyToOtherLanguage("backend", "en", data)
+	applyToOtherLanguage("backend", "es", data)
+	applyToOtherLanguage("backend", "fr", data)
+	applyToOtherLanguage("backend", "de", data)
+	applyToOtherLanguage("backend", "ja", data)
+	applyToOtherLanguage("backend", "zh", data)
+	applyToOtherLanguage("backend", "vi", data)
+	applyToOtherLanguage("backend", "pt", data)
+	applyToOtherLanguage("backend", "tr", data)
+	applyToOtherLanguage("backend", "pl", data)
+	applyToOtherLanguage("backend", "uk", data)
 }

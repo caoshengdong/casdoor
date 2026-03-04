@@ -15,6 +15,7 @@
 package idp
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -25,8 +26,31 @@ type UserInfo struct {
 	Id          string
 	Username    string
 	DisplayName string
+	UnionId     string
 	Email       string
+	Phone       string
+	CountryCode string
 	AvatarUrl   string
+	Extra       map[string]string
+}
+
+type ProviderInfo struct {
+	Type          string
+	SubType       string
+	ClientId      string
+	ClientSecret  string
+	ClientId2     string
+	ClientSecret2 string
+	AppId         string
+	HostUrl       string
+	RedirectUrl   string
+	DisableSsl    bool
+	CodeVerifier  string
+
+	TokenURL    string
+	AuthURL     string
+	UserInfoURL string
+	UserMapping map[string]string
 }
 
 type IdProvider interface {
@@ -35,69 +59,146 @@ type IdProvider interface {
 	GetUserInfo(token *oauth2.Token) (*UserInfo, error)
 }
 
-func GetIdProvider(typ string, subType string, clientId string, clientSecret string, appId string, redirectUrl string, hostUrl string, authUrl string, tokenUrl string, userInfoUrl string) IdProvider {
-	if typ == "GitHub" {
-		return NewGithubIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "Google" {
-		return NewGoogleIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "QQ" {
-		return NewQqIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "WeChat" {
-		return NewWeChatIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "Facebook" {
-		return NewFacebookIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "DingTalk" {
-		return NewDingTalkIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "Weibo" {
-		return NewWeiBoIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "Gitee" {
-		return NewGiteeIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "LinkedIn" {
-		return NewLinkedInIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "WeCom" {
-		if subType == "Internal" {
-			return NewWeComInternalIdProvider(clientId, clientSecret, redirectUrl)
-		} else if subType == "Third-party" {
-			return NewWeComIdProvider(clientId, clientSecret, redirectUrl)
+func GetIdProvider(idpInfo *ProviderInfo, redirectUrl string) (IdProvider, error) {
+	switch idpInfo.Type {
+	case "GitHub":
+		return NewGithubIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "Google":
+		return NewGoogleIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "QQ":
+		return NewQqIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "WeChat":
+		if idpInfo.SubType == "Mobile" {
+			return NewWeChatMobileIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
 		} else {
-			return nil
+			// Default to Web (PC QR code login) for backward compatibility
+			return NewWeChatIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
 		}
-	} else if typ == "Lark" {
-		return NewLarkIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "GitLab" {
-		return NewGitlabIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "Adfs" {
-		return NewAdfsIdProvider(clientId, clientSecret, redirectUrl, hostUrl)
-	} else if typ == "Baidu" {
-		return NewBaiduIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "Alipay" {
-		return NewAlipayIdProvider(clientId, clientSecret, redirectUrl)
-	} else if typ == "Custom" {
-		return NewCustomIdProvider(clientId, clientSecret, redirectUrl, authUrl, tokenUrl, userInfoUrl)
-	} else if typ == "Infoflow" {
-		if subType == "Internal" {
-			return NewInfoflowInternalIdProvider(clientId, clientSecret, appId, redirectUrl)
-		} else if subType == "Third-party" {
-			return NewInfoflowIdProvider(clientId, clientSecret, appId, redirectUrl)
+	case "Facebook":
+		return NewFacebookIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "DingTalk":
+		return NewDingTalkIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "Weibo":
+		return NewWeiBoIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "Gitee":
+		return NewGiteeIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "LinkedIn":
+		return NewLinkedInIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "WeCom":
+		if idpInfo.SubType == "Internal" {
+			return NewWeComInternalIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl, idpInfo.DisableSsl), nil
+		} else if idpInfo.SubType == "Third-party" {
+			return NewWeComIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl, idpInfo.DisableSsl), nil
 		} else {
-			return nil
+			return nil, fmt.Errorf("WeCom provider subType: %s is not supported", idpInfo.SubType)
 		}
-	} else if typ == "Casdoor" {
-		return NewCasdoorIdProvider(clientId, clientSecret, redirectUrl, hostUrl)
-	} else if typ == "Okta" {
-		return NewOktaIdProvider(clientId, clientSecret, redirectUrl, hostUrl)
-	} else if typ == "Douyin" {
-		return NewDouyinIdProvider(clientId, clientSecret, redirectUrl)
-	} else if isGothSupport(typ) {
-		return NewGothIdProvider(typ, clientId, clientSecret, redirectUrl)
-	} else if typ == "Bilibili" {
-		return NewBilibiliIdProvider(clientId, clientSecret, redirectUrl)
+	case "Lark":
+		return NewLarkIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl, idpInfo.DisableSsl), nil
+	case "GitLab":
+		return NewGitlabIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "ADFS":
+		return NewAdfsIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl, idpInfo.HostUrl), nil
+	case "AzureADB2C":
+		return NewAzureAdB2cProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl, idpInfo.HostUrl, idpInfo.AppId), nil
+	case "Baidu":
+		return NewBaiduIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "Alipay":
+		return NewAlipayIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "Custom":
+		return NewCustomIdProvider(idpInfo, redirectUrl), nil
+	case "Infoflow":
+		if idpInfo.SubType == "Internal" {
+			return NewInfoflowInternalIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, idpInfo.AppId, redirectUrl), nil
+		} else if idpInfo.SubType == "Third-party" {
+			return NewInfoflowIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, idpInfo.AppId, redirectUrl), nil
+		} else {
+			return nil, fmt.Errorf("Infoflow provider subType: %s is not supported", idpInfo.SubType)
+		}
+	case "Casdoor":
+		return NewCasdoorIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl, idpInfo.HostUrl), nil
+	case "Okta":
+		return NewOktaIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl, idpInfo.HostUrl), nil
+	case "Douyin":
+		return NewDouyinIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "Kwai":
+		return NewKwaiIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "Bilibili":
+		return NewBilibiliIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	case "MetaMask":
+		return NewMetaMaskIdProvider(), nil
+	case "Web3Onboard":
+		return NewWeb3OnboardIdProvider(), nil
+	case "Twitter":
+		provider := NewTwitterIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl)
+		provider.CodeVerifier = idpInfo.CodeVerifier
+		return provider, nil
+	case "Telegram":
+		return NewTelegramIdProvider(idpInfo.ClientId, idpInfo.ClientSecret, redirectUrl), nil
+	default:
+		if isGothSupport(idpInfo.Type) {
+			return NewGothIdProvider(idpInfo.Type, idpInfo.ClientId, idpInfo.ClientSecret, idpInfo.ClientId2, idpInfo.ClientSecret2, redirectUrl, idpInfo.HostUrl)
+		}
+		if strings.HasPrefix(idpInfo.Type, "Custom") {
+			return NewCustomIdProvider(idpInfo, redirectUrl), nil
+		}
+		return nil, fmt.Errorf("OAuth provider type: %s is not supported", idpInfo.Type)
 	}
-
-	return nil
 }
 
-var gothList = []string{"Apple", "AzureAd", "Slack", "Steam"}
+var gothList = []string{
+	"Apple",
+	"AzureAD",
+	"Slack",
+	"Steam",
+	"Line",
+	"Amazon",
+	"Auth0",
+	"BattleNet",
+	"Bitbucket",
+	"Box",
+	"CloudFoundry",
+	"Dailymotion",
+	"Deezer",
+	"DigitalOcean",
+	"Discord",
+	"Dropbox",
+	"EveOnline",
+	"Fitbit",
+	"Gitea",
+	"Heroku",
+	"InfluxCloud",
+	"Instagram",
+	"Intercom",
+	"Kakao",
+	"Lastfm",
+	"Mailru",
+	"Meetup",
+	"MicrosoftOnline",
+	"Naver",
+	"Nextcloud",
+	"OneDrive",
+	"Oura",
+	"Patreon",
+	"Paypal",
+	"SalesForce",
+	"Shopify",
+	"Soundcloud",
+	"Spotify",
+	"Strava",
+	"Stripe",
+	"TikTok",
+	"Tumblr",
+	"Twitch",
+	"Typetalk",
+	"Uber",
+	"VK",
+	"Wepay",
+	"Xero",
+	"Yahoo",
+	"Yammer",
+	"Yandex",
+	"Zoom",
+}
 
 func isGothSupport(provider string) bool {
 	for _, value := range gothList {

@@ -43,27 +43,46 @@ func clearCron(name string) {
 	}
 }
 
-func addSyncerJob(syncer *Syncer) {
+func addSyncerJob(syncer *Syncer) error {
 	deleteSyncerJob(syncer)
 
 	if !syncer.IsEnabled {
-		return
+		return nil
 	}
 
-	syncer.initAdapter()
+	err := syncer.initAdapter()
+	if err != nil {
+		return err
+	}
 
-	syncer.syncUsers()
+	err = syncer.syncUsers()
+	if err != nil {
+		return err
+	}
+
+	// Sync groups as well
+	err = syncer.syncGroups()
+	if err != nil {
+		// Log error but don't fail the entire sync
+		fmt.Printf("Warning: syncGroups() error: %s\n", err.Error())
+	}
 
 	schedule := fmt.Sprintf("@every %ds", syncer.SyncInterval)
 	cron := getCronMap(syncer.Name)
-	_, err := cron.AddFunc(schedule, syncer.syncUsers)
+	_, err = cron.AddFunc(schedule, func() {
+		syncer.syncUsersNoError()
+		syncer.syncGroupsNoError()
+	})
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	cron.Start()
+	return nil
 }
 
 func deleteSyncerJob(syncer *Syncer) {
 	clearCron(syncer.Name)
+	// Close any open connections when deleting the job
+	_ = syncer.Close()
 }

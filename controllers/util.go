@@ -16,16 +16,16 @@ package controllers
 
 import (
 	"fmt"
-	"strconv"
+	"strings"
 
 	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/util"
 )
 
-// ResponseOk ...
-func (c *ApiController) ResponseOk(data ...interface{}) {
-	resp := Response{Status: "ok"}
+// ResponseJsonData ...
+func (c *ApiController) ResponseJsonData(resp *Response, data ...interface{}) {
 	switch len(data) {
 	case 2:
 		resp.Data2 = data[1]
@@ -37,25 +37,45 @@ func (c *ApiController) ResponseOk(data ...interface{}) {
 	c.ServeJSON()
 }
 
+// ResponseOk ...
+func (c *ApiController) ResponseOk(data ...interface{}) {
+	resp := &Response{Status: "ok"}
+	c.ResponseJsonData(resp, data...)
+}
+
 // ResponseError ...
 func (c *ApiController) ResponseError(error string, data ...interface{}) {
-	resp := Response{Status: "error", Msg: error}
-	switch len(data) {
-	case 2:
-		resp.Data2 = data[1]
-		fallthrough
-	case 1:
-		resp.Data = data[0]
+	enableErrorMask2 := conf.GetConfigBool("enableErrorMask2")
+	if enableErrorMask2 {
+		error = c.T("subscription:Error")
+
+		resp := &Response{Status: "error", Msg: error}
+		c.ResponseJsonData(resp, data...)
+		return
 	}
-	c.Data["json"] = resp
-	c.ServeJSON()
+
+	resp := &Response{Status: "error", Msg: error}
+	c.ResponseJsonData(resp, data...)
+}
+
+func (c *ApiController) T(error string) string {
+	return i18n.Translate(c.GetAcceptLanguage(), error)
+}
+
+// GetAcceptLanguage ...
+func (c *ApiController) GetAcceptLanguage() string {
+	language := c.Ctx.Request.Header.Get("Accept-Language")
+	if len(language) > 2 {
+		language = language[0:2]
+	}
+	return conf.GetLanguage(language)
 }
 
 // SetTokenErrorHttpStatus ...
 func (c *ApiController) SetTokenErrorHttpStatus() {
 	_, ok := c.Data["json"].(*object.TokenError)
 	if ok {
-		if c.Data["json"].(*object.TokenError).Error == object.INVALID_CLIENT {
+		if c.Data["json"].(*object.TokenError).Error == object.InvalidClient {
 			c.Ctx.Output.SetStatus(401)
 			c.Ctx.Output.Header("WWW-Authenticate", "Basic realm=\"OAuth2\"")
 		} else {
@@ -72,48 +92,225 @@ func (c *ApiController) SetTokenErrorHttpStatus() {
 func (c *ApiController) RequireSignedIn() (string, bool) {
 	userId := c.GetSessionUsername()
 	if userId == "" {
-		c.ResponseError("Please sign in first")
+		c.ResponseError(c.T("general:Please login first"), "Please login first")
 		return "", false
 	}
 	return userId, true
 }
 
-func getInitScore() int {
-	score, err := strconv.Atoi(conf.GetConfigString("initScore"))
-	if err != nil {
-		panic(err)
+// RequireSignedInUser ...
+func (c *ApiController) RequireSignedInUser() (*object.User, bool) {
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return nil, false
 	}
 
-	return score
+	if object.IsAppUser(userId) {
+		tmpUserId := c.Ctx.Input.Query("userId")
+		if tmpUserId != "" {
+			userId = tmpUserId
+		}
+	}
+
+	user, err := object.GetUser(userId)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return nil, false
+	}
+	if user == nil {
+		c.ClearUserSession()
+		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), userId))
+		return nil, false
+	}
+
+	return user, true
 }
 
-func (c *ApiController) GetProviderFromContext(category string) (*object.Provider, *object.User, bool) {
-	providerName := c.Input().Get("provider")
-	if providerName != "" {
-		provider := object.GetProvider(util.GetId(providerName))
-		if provider == nil {
-			c.ResponseError(fmt.Sprintf("The provider: %s is not found", providerName))
-			return nil, nil, false
+// RequireAdmin ...
+func (c *ApiController) RequireAdmin() (string, bool) {
+	user, ok := c.RequireSignedInUser()
+	if !ok {
+		return "", false
+	}
+
+	if user.Owner == "built-in" {
+		return "", true
+	}
+
+	if !user.IsAdmin {
+		c.ResponseError(c.T("general:this operation requires administrator to perform"))
+		return "", false
+	}
+
+	return user.Owner, true
+}
+
+func (c *ApiController) IsOrgAdmin() (bool, bool) {
+	userId, ok := c.RequireSignedIn()
+	if !ok {
+		return false, true
+	}
+
+	if object.IsAppUser(userId) {
+		return true, true
+	}
+
+	user, err := object.GetUser(userId)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return false, false
+	}
+	if user == nil {
+		c.ClearUserSession()
+		c.ResponseError(fmt.Sprintf(c.T("general:The user: %s doesn't exist"), userId))
+		return false, false
+	}
+
+	return user.IsAdmin, true
+}
+
+// IsMaskedEnabled ...
+func (c *ApiController) IsMaskedEnabled() (bool, bool) {
+	isMaskEnabled := true
+	withSecret := c.Ctx.Input.Query("withSecret")
+	if withSecret == "1" {
+		isMaskEnabled = false
+
+		if conf.IsDemoMode() {
+			c.ResponseError(c.T("general:this operation is not allowed in demo mode"))
+			return false, isMaskEnabled
 		}
-		return provider, nil, true
+
+		_, ok := c.RequireAdmin()
+		if !ok {
+			return false, isMaskEnabled
+		}
+	}
+
+	return true, isMaskEnabled
+}
+
+func refineFullFilePath(fullFilePath string) (string, string) {
+	tokens := strings.Split(fullFilePath, "/")
+	if len(tokens) >= 2 && tokens[0] == "Direct" && tokens[1] != "" {
+		providerName := tokens[1]
+		res := strings.Join(tokens[2:], "/")
+		return providerName, "/" + res
+	} else {
+		return "", fullFilePath
+	}
+}
+
+func (c *ApiController) GetProviderFromContext(category string) (*object.Provider, error) {
+	providerName := c.Ctx.Input.Query("provider")
+	if providerName == "" {
+		field := c.Ctx.Input.Query("field")
+		value := c.Ctx.Input.Query("value")
+		if field == "provider" && value != "" {
+			providerName = value
+		} else {
+			fullFilePath := c.Ctx.Input.Query("fullFilePath")
+			providerName, _ = refineFullFilePath(fullFilePath)
+		}
+	}
+
+	if providerName != "" {
+		provider, err := object.GetProvider(util.GetId("admin", providerName))
+		if err != nil {
+			return nil, err
+		}
+
+		if provider == nil {
+			err = fmt.Errorf(c.T("util:The provider: %s is not found"), providerName)
+			return nil, err
+		}
+
+		return provider, nil
 	}
 
 	userId, ok := c.RequireSignedIn()
 	if !ok {
-		return nil, nil, false
+		return nil, fmt.Errorf(c.T("general:Please login first"))
 	}
 
-	application, user := object.GetApplicationByUserId(userId)
+	application, err := object.GetApplicationByUserId(userId)
+	if err != nil {
+		return nil, err
+	}
+
 	if application == nil {
-		c.ResponseError(fmt.Sprintf("No application is found for userId: \"%s\"", userId))
-		return nil, nil, false
+		return nil, fmt.Errorf(c.T("util:No application is found for userId: %s"), userId)
 	}
 
-	provider := application.GetProviderByCategory(category)
+	provider, err := application.GetProviderByCategory(category)
+	if err != nil {
+		return nil, err
+	}
+
 	if provider == nil {
-		c.ResponseError(fmt.Sprintf("No provider for category: \"%s\" is found for application: %s", category, application.Name))
-		return nil, nil, false
+		return nil, fmt.Errorf(c.T("util:No provider for category: %s is found for application: %s"), category, application.Name)
 	}
 
-	return provider, user, true
+	return provider, nil
+}
+
+func checkQuotaForApplication(count int) error {
+	quota := conf.GetConfigQuota().Application
+	if quota == -1 {
+		return nil
+	}
+	if count >= quota {
+		return fmt.Errorf("application quota is exceeded")
+	}
+	return nil
+}
+
+func checkQuotaForOrganization(count int) error {
+	quota := conf.GetConfigQuota().Organization
+	if quota == -1 {
+		return nil
+	}
+	if count >= quota {
+		return fmt.Errorf("organization quota is exceeded")
+	}
+	return nil
+}
+
+func checkQuotaForProvider(count int) error {
+	quota := conf.GetConfigQuota().Provider
+	if quota == -1 {
+		return nil
+	}
+	if count >= quota {
+		return fmt.Errorf("provider quota is exceeded")
+	}
+	return nil
+}
+
+func checkQuotaForUser() error {
+	quota := conf.GetConfigQuota().User
+	if quota == -1 {
+		return nil
+	}
+
+	count, err := object.GetUserCount("", "", "", "")
+	if err != nil {
+		return err
+	}
+
+	if int(count) >= quota {
+		return fmt.Errorf("user quota is exceeded")
+	}
+	return nil
+}
+
+func getInvalidSmsReceivers(smsForm SmsForm) []string {
+	var invalidReceivers []string
+	for _, receiver := range smsForm.Receivers {
+		// The receiver phone format: E164 like +8613854673829 +441932567890
+		if !util.IsPhoneValid(receiver, "") {
+			invalidReceivers = append(invalidReceivers, receiver)
+		}
+	}
+	return invalidReceivers
 }

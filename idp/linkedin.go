@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -47,11 +46,11 @@ func (idp *LinkedInIdProvider) SetHttpClient(client *http.Client) {
 
 // getConfig return a point of Config, which describes a typical 3-legged OAuth2 flow
 func (idp *LinkedInIdProvider) getConfig(clientId string, clientSecret string, redirectUrl string) *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
+	endpoint := oauth2.Endpoint{
 		TokenURL: "https://www.linkedIn.com/oauth/v2/accessToken",
 	}
 
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		Scopes:       []string{"email,public_profile"},
 		Endpoint:     endpoint,
 		ClientID:     clientId,
@@ -63,8 +62,8 @@ func (idp *LinkedInIdProvider) getConfig(clientId string, clientSecret string, r
 }
 
 type LinkedInAccessToken struct {
-	AccessToken string `json:"access_token"` //Interface call credentials
-	ExpiresIn   int64  `json:"expires_in"`   //access_token interface call credential timeout time, unit (seconds)
+	AccessToken string `json:"access_token"` // Interface call credentials
+	ExpiresIn   int64  `json:"expires_in"`   // access_token interface call credential timeout time, unit (seconds)
 }
 
 // GetToken use code get access_token (*operation of getting code ought to be done in front)
@@ -85,7 +84,7 @@ func (idp *LinkedInIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	rbs, err := ioutil.ReadAll(resp.Body)
+	rbs, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +322,7 @@ func (idp *LinkedInIdProvider) GetUrlRespWithAuthorization(url, token string) ([
 		}
 	}(resp.Body)
 
-	bs, err := ioutil.ReadAll(resp.Body)
+	bs, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}

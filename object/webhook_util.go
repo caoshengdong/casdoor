@@ -15,20 +15,58 @@
 package object
 
 import (
+	"io"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/casdoor/casdoor/util"
+	"github.com/casvisor/casvisor-go-sdk/casvisorsdk"
 )
 
-func sendWebhook(webhook *Webhook, record *Record) error {
+func sendWebhook(webhook *Webhook, record *casvisorsdk.Record, extendedUser *User) (int, string, error) {
 	client := &http.Client{}
+	userMap := make(map[string]interface{})
+	var body io.Reader
 
-	body := strings.NewReader(util.StructToJson(record))
+	if webhook.TokenFields != nil && len(webhook.TokenFields) > 0 && extendedUser != nil {
+		userValue := reflect.ValueOf(extendedUser).Elem()
+
+		for _, field := range webhook.TokenFields {
+			userField := userValue.FieldByName(field)
+			if userField.IsValid() {
+				newfield := util.SnakeToCamel(util.CamelToSnakeCase(field))
+				userMap[newfield] = userField.Interface()
+			}
+		}
+
+		type RecordEx struct {
+			casvisorsdk.Record
+			ExtendedUser map[string]interface{} `json:"extendedUser"`
+		}
+
+		recordEx := &RecordEx{
+			Record:       *record,
+			ExtendedUser: userMap,
+		}
+
+		body = strings.NewReader(util.StructToJson(recordEx))
+	} else {
+		type RecordEx struct {
+			casvisorsdk.Record
+			ExtendedUser *User `xorm:"-" json:"extendedUser"`
+		}
+		recordEx := &RecordEx{
+			Record:       *record,
+			ExtendedUser: extendedUser,
+		}
+
+		body = strings.NewReader(util.StructToJson(recordEx))
+	}
 
 	req, err := http.NewRequest(webhook.Method, webhook.Url, body)
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 
 	req.Header.Set("Content-Type", webhook.ContentType)
@@ -37,6 +75,15 @@ func sendWebhook(webhook *Webhook, record *Record) error {
 		req.Header.Set(header.Name, header.Value)
 	}
 
-	_, err = client.Do(req)
-	return err
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+
+	defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, "", err
+	}
+	return resp.StatusCode, string(bodyBytes), err
 }

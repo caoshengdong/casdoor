@@ -15,19 +15,20 @@
 package storage
 
 import (
-	awss3 "github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/casdoor/oss"
 	"github.com/casdoor/oss/s3"
 )
 
 func NewAwsS3StorageProvider(clientId string, clientSecret string, region string, bucket string, endpoint string) oss.StorageInterface {
 	sp := s3.New(&s3.Config{
-		AccessID:  clientId,
-		AccessKey: clientSecret,
-		Region:    region,
-		Bucket:    bucket,
-		Endpoint:  endpoint,
-		ACL:       awss3.BucketCannedACLPublicRead,
+		AccessID:   clientId,
+		AccessKey:  clientSecret,
+		Region:     region,
+		Bucket:     bucket,
+		Endpoint:   endpoint,
+		S3Endpoint: endpoint,
+		ACL:        string(types.BucketCannedACLPublicRead),
 	})
 
 	return sp

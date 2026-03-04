@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -47,12 +46,12 @@ func (idp *BilibiliIdProvider) SetHttpClient(client *http.Client) {
 
 // getConfig return a point of Config, which describes a typical 3-legged OAuth2 flow
 func (idp *BilibiliIdProvider) getConfig(clientId string, clientSecret string, redirectUrl string) *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
+	endpoint := oauth2.Endpoint{
 		TokenURL: "https://api.bilibili.com/x/account-oauth2/v1/token",
 		AuthURL:  "http://member.bilibili.com/arcopen/fn/user/account/info",
 	}
 
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		Scopes:       []string{"", ""},
 		Endpoint:     endpoint,
 		ClientID:     clientId,
@@ -76,6 +75,7 @@ type BilibiliIdProviderTokenResponse struct {
 	Data    BilibiliProviderToken `json:"data"`
 }
 
+// GetToken
 /*
 {
     "code": 0,
@@ -104,7 +104,6 @@ func (idp *BilibiliIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	}
 
 	data, err := idp.postWithBody(pTokenParams, idp.Config.Endpoint.TokenURL)
-
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +143,7 @@ func (idp *BilibiliIdProvider) GetToken(code string) (*oauth2.Token, error) {
 type BilibiliUserInfo struct {
 	Name   string `json:"name"`
 	Face   string `json:"face"`
-	OpenId string `json:"openid`
+	OpenId string `json:"openid"`
 }
 
 type BilibiliUserInfoResponse struct {
@@ -167,12 +166,11 @@ func (idp *BilibiliIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, erro
 	userInfoUrl := fmt.Sprintf("%s?%s", idp.Config.Endpoint.AuthURL, params.Encode())
 
 	resp, err := idp.Client.Get(userInfoUrl)
-
 	if err != nil {
 		return nil, err
 	}
 
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +204,7 @@ func (idp *BilibiliIdProvider) postWithBody(body interface{}, url string) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}

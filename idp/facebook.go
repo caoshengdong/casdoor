@@ -46,11 +46,11 @@ func (idp *FacebookIdProvider) SetHttpClient(client *http.Client) {
 
 // getConfig return a point of Config, which describes a typical 3-legged OAuth2 flow
 func (idp *FacebookIdProvider) getConfig(clientId string, clientSecret string, redirectUrl string) *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
+	endpoint := oauth2.Endpoint{
 		TokenURL: "https://graph.facebook.com/oauth/access_token",
 	}
 
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		Scopes:       []string{"email,public_profile"},
 		Endpoint:     endpoint,
 		ClientID:     clientId,
@@ -62,22 +62,23 @@ func (idp *FacebookIdProvider) getConfig(clientId string, clientSecret string, r
 }
 
 type FacebookAccessToken struct {
-	AccessToken string `json:"access_token"` //Interface call credentials
-	TokenType   string `json:"token_type"`   //Access token type
-	ExpiresIn   int64  `json:"expires_in"`   //access_token interface call credential timeout time, unit (seconds)
+	AccessToken string `json:"access_token"` // Interface call credentials
+	TokenType   string `json:"token_type"`   // Access token type
+	ExpiresIn   int64  `json:"expires_in"`   // access_token interface call credential timeout time, unit (seconds)
 }
 
 type FacebookCheckToken struct {
 	Data string `json:"data"`
 }
 
-// Get more detail via: https://developers.facebook.com/docs/facebook-login/manually-build-a-login-flow#checktoken
+// FacebookCheckTokenData
+// Get more detail via: https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow#checktoken
 type FacebookCheckTokenData struct {
 	UserId string `json:"user_id"`
 }
 
 // GetToken use code get access_token (*operation of getting code ought to be done in front)
-// get more detail via: https://developers.facebook.com/docs/facebook-login/manually-build-a-login-flow#confirm
+// get more detail via: https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow#confirm
 func (idp *FacebookIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	params := url.Values{}
 	params.Add("client_id", idp.Config.ClientID)

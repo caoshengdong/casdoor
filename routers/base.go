@@ -15,10 +15,18 @@
 package routers
 
 import (
+	stdcontext "context"
+	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
+	"net/url"
 	"strings"
 
-	"github.com/astaxie/beego/context"
+	"github.com/beego/beego/v2/server/web/context"
+	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/i18n"
+	"github.com/casdoor/casdoor/mcp"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/util"
 )
@@ -31,6 +39,13 @@ type Response struct {
 }
 
 func responseError(ctx *context.Context, error string, data ...interface{}) {
+	// ctx.ResponseWriter.WriteHeader(http.StatusForbidden)
+	urlPath := ctx.Request.URL.Path
+	if urlPath == "/api/mcp" {
+		denyMcpRequest(ctx)
+		return
+	}
+
 	resp := Response{Status: "error", Msg: error}
 	switch len(data) {
 	case 2:
@@ -46,11 +61,55 @@ func responseError(ctx *context.Context, error string, data ...interface{}) {
 	}
 }
 
-func denyRequest(ctx *context.Context) {
-	responseError(ctx, "Unauthorized operation")
+func getAcceptLanguage(ctx *context.Context) string {
+	language := ctx.Request.Header.Get("Accept-Language")
+	return conf.GetLanguage(language)
 }
 
-func getUsernameByClientIdSecret(ctx *context.Context) string {
+func T(ctx *context.Context, error string) string {
+	return i18n.Translate(getAcceptLanguage(ctx), error)
+}
+
+func denyRequest(ctx *context.Context) {
+	responseError(ctx, T(ctx, "auth:Unauthorized operation"))
+}
+
+func denyMcpRequest(ctx *context.Context) {
+	req := mcp.McpRequest{}
+	err := json.Unmarshal(ctx.Input.RequestBody, &req)
+	if err != nil {
+		ctx.Output.SetStatus(http.StatusBadRequest)
+		return
+	}
+
+	if req.ID == nil {
+		ctx.Output.SetStatus(http.StatusAccepted)
+		ctx.Output.Body([]byte{})
+		return
+	}
+
+	resp := mcp.BuildMcpResponse(req.ID, nil, &mcp.McpError{
+		Code:    -32001,
+		Message: "Unauthorized",
+		Data:    T(ctx, "auth:Unauthorized operation"),
+	})
+
+	// Add WWW-Authenticate header per MCP Authorization spec (RFC 9728)
+	// Use the same logic as getOriginFromHost to determine the scheme
+	host := ctx.Request.Host
+	scheme := "https"
+	if !strings.Contains(host, ".") {
+		// localhost:8000 or computer-name:80
+		scheme = "http"
+	}
+	resourceMetadataUrl := fmt.Sprintf("%s://%s/.well-known/oauth-protected-resource", scheme, host)
+	ctx.Output.Header("WWW-Authenticate", fmt.Sprintf("Bearer realm=\"casdoor\", resource_metadata=\"%s\"", resourceMetadataUrl))
+
+	ctx.Output.SetStatus(http.StatusUnauthorized)
+	_ = ctx.Output.JSON(resp, true, false)
+}
+
+func getUsernameByClientIdSecret(ctx *context.Context) (string, error) {
 	clientId, clientSecret, ok := ctx.Request.BasicAuth()
 	if !ok {
 		clientId = ctx.Input.Query("clientId")
@@ -58,19 +117,44 @@ func getUsernameByClientIdSecret(ctx *context.Context) string {
 	}
 
 	if clientId == "" || clientSecret == "" {
-		return ""
+		return "", nil
 	}
 
-	application := object.GetApplicationByClientId(clientId)
-	if application == nil || application.ClientSecret != clientSecret {
-		return ""
+	application, err := object.GetApplicationByClientId(clientId)
+	if err != nil {
+		return "", err
+	}
+	if application == nil {
+		return "", fmt.Errorf("Application not found for client ID: %s", clientId)
 	}
 
-	return fmt.Sprintf("app/%s", application.Name)
+	if application.ClientSecret != clientSecret {
+		return "", fmt.Errorf("Incorrect client secret for application: %s", application.Name)
+	}
+
+	return fmt.Sprintf("app/%s", application.Name), nil
+}
+
+func getUsernameByKeys(ctx *context.Context) (string, error) {
+	accessKey, accessSecret := getKeys(ctx)
+	user, err := object.GetUserByAccessKey(accessKey)
+	if err != nil {
+		return "", err
+	}
+
+	if user == nil {
+		return "", fmt.Errorf("user not found for access key: %s", accessKey)
+	}
+
+	if accessSecret != user.AccessSecret {
+		return "", fmt.Errorf("incorrect access secret for user: %s", user.Name)
+	}
+
+	return user.GetId(), nil
 }
 
 func getSessionUser(ctx *context.Context) string {
-	user := ctx.Input.CruSession.Get("username")
+	user := ctx.Input.CruSession.Get(stdcontext.Background(), "username")
 	if user == nil {
 		return ""
 	}
@@ -79,34 +163,34 @@ func getSessionUser(ctx *context.Context) string {
 }
 
 func setSessionUser(ctx *context.Context, user string) {
-	err := ctx.Input.CruSession.Set("username", user)
+	err := ctx.Input.CruSession.Set(stdcontext.Background(), "username", user)
 	if err != nil {
 		panic(err)
 	}
 
 	// https://github.com/beego/beego/issues/3445#issuecomment-455411915
-	ctx.Input.CruSession.SessionRelease(ctx.ResponseWriter)
+	ctx.Input.CruSession.SessionRelease(stdcontext.Background(), ctx.ResponseWriter)
 }
 
 func setSessionExpire(ctx *context.Context, ExpireTime int64) {
 	SessionData := struct{ ExpireTime int64 }{ExpireTime: ExpireTime}
-	err := ctx.Input.CruSession.Set("SessionData", util.StructToJson(SessionData))
+	err := ctx.Input.CruSession.Set(stdcontext.Background(), "SessionData", util.StructToJson(SessionData))
 	if err != nil {
 		panic(err)
 	}
-	ctx.Input.CruSession.SessionRelease(ctx.ResponseWriter)
+	ctx.Input.CruSession.SessionRelease(stdcontext.Background(), ctx.ResponseWriter)
 }
 
 func setSessionOidc(ctx *context.Context, scope string, aud string) {
-	err := ctx.Input.CruSession.Set("scope", scope)
+	err := ctx.Input.CruSession.Set(stdcontext.Background(), "scope", scope)
 	if err != nil {
 		panic(err)
 	}
-	err = ctx.Input.CruSession.Set("aud", aud)
+	err = ctx.Input.CruSession.Set(stdcontext.Background(), "aud", aud)
 	if err != nil {
 		panic(err)
 	}
-	ctx.Input.CruSession.SessionRelease(ctx.ResponseWriter)
+	ctx.Input.CruSession.SessionRelease(stdcontext.Background(), ctx.ResponseWriter)
 }
 
 func parseBearerToken(ctx *context.Context) string {
@@ -122,4 +206,26 @@ func parseBearerToken(ctx *context.Context) string {
 	}
 
 	return tokens[1]
+}
+
+func getHostname(s string) string {
+	if s == "" {
+		return ""
+	}
+
+	l, err := url.Parse(s)
+	if err != nil {
+		panic(err)
+	}
+
+	res := l.Hostname()
+	return res
+}
+
+func removePort(s string) string {
+	ipStr, _, err := net.SplitHostPort(s)
+	if err != nil {
+		ipStr = s
+	}
+	return ipStr
 }

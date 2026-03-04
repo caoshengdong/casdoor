@@ -15,6 +15,7 @@
 package proxy
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -25,8 +26,10 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-var DefaultHttpClient *http.Client
-var ProxyHttpClient *http.Client
+var (
+	DefaultHttpClient *http.Client
+	ProxyHttpClient   *http.Client
+)
 
 func InitHttpClient() {
 	// not use proxy
@@ -69,7 +72,7 @@ func getProxyHttpClient() *http.Client {
 		panic(err)
 	}
 
-	tr := &http.Transport{Dial: dialer.Dial}
+	tr := &http.Transport{Dial: dialer.Dial, TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	return &http.Client{
 		Transport: tr,
 	}

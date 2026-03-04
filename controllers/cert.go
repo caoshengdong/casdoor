@@ -17,7 +17,7 @@ package controllers
 import (
 	"encoding/json"
 
-	"github.com/astaxie/beego/utils/pagination"
+	"github.com/beego/beego/v2/core/utils/pagination"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/util"
 )
@@ -30,57 +30,123 @@ import (
 // @Success 200 {array} object.Cert The Response object
 // @router /get-certs [get]
 func (c *ApiController) GetCerts() {
-	owner := c.Input().Get("owner")
-	limit := c.Input().Get("pageSize")
-	page := c.Input().Get("p")
-	field := c.Input().Get("field")
-	value := c.Input().Get("value")
-	sortField := c.Input().Get("sortField")
-	sortOrder := c.Input().Get("sortOrder")
+	owner := c.Ctx.Input.Query("owner")
+	limit := c.Ctx.Input.Query("pageSize")
+	page := c.Ctx.Input.Query("p")
+	field := c.Ctx.Input.Query("field")
+	value := c.Ctx.Input.Query("value")
+	sortField := c.Ctx.Input.Query("sortField")
+	sortOrder := c.Ctx.Input.Query("sortOrder")
+
 	if limit == "" || page == "" {
-		c.Data["json"] = object.GetMaskedCerts(object.GetCerts(owner))
-		c.ServeJSON()
+		certs, err := object.GetMaskedCerts(object.GetCerts(owner))
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(certs)
 	} else {
 		limit := util.ParseInt(limit)
-		paginator := pagination.SetPaginator(c.Ctx, limit, int64(object.GetCertCount(owner, field, value)))
-		certs := object.GetMaskedCerts(object.GetPaginationCerts(owner, paginator.Offset(), limit, field, value, sortField, sortOrder))
+		count, err := object.GetCertCount(owner, field, value)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
+		certs, err := object.GetMaskedCerts(object.GetPaginationCerts(owner, paginator.Offset(), limit, field, value, sortField, sortOrder))
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
 		c.ResponseOk(certs, paginator.Nums())
 	}
 }
 
+// GetGlobalCerts
+// @Title GetGlobalCerts
+// @Tag Cert API
+// @Description get global certs
+// @Success 200 {array} object.Cert The Response object
+// @router /get-global-certs [get]
+func (c *ApiController) GetGlobalCerts() {
+	limit := c.Ctx.Input.Query("pageSize")
+	page := c.Ctx.Input.Query("p")
+	field := c.Ctx.Input.Query("field")
+	value := c.Ctx.Input.Query("value")
+	sortField := c.Ctx.Input.Query("sortField")
+	sortOrder := c.Ctx.Input.Query("sortOrder")
+
+	if limit == "" || page == "" {
+		certs, err := object.GetMaskedCerts(object.GetGlobalCerts())
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(certs)
+	} else {
+		limit := util.ParseInt(limit)
+		count, err := object.GetGlobalCertsCount(field, value)
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		paginator := pagination.NewPaginator(c.Ctx.Request, limit, count)
+		certs, err := object.GetMaskedCerts(object.GetPaginationGlobalCerts(paginator.Offset(), limit, field, value, sortField, sortOrder))
+		if err != nil {
+			c.ResponseError(err.Error())
+			return
+		}
+
+		c.ResponseOk(certs, paginator.Nums())
+	}
+}
+
+// GetCert
 // @Title GetCert
 // @Tag Cert API
 // @Description get cert
-// @Param   id    query    string  true        "The id of the cert"
+// @Param   id     query    string  true        "The id ( owner/name ) of the cert"
 // @Success 200 {object} object.Cert The Response object
 // @router /get-cert [get]
 func (c *ApiController) GetCert() {
-	id := c.Input().Get("id")
+	id := c.Ctx.Input.Query("id")
+	cert, err := object.GetCert(id)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
 
-	c.Data["json"] = object.GetMaskedCert(object.GetCert(id))
-	c.ServeJSON()
+	c.ResponseOk(object.GetMaskedCert(cert))
 }
 
+// UpdateCert
 // @Title UpdateCert
 // @Tag Cert API
 // @Description update cert
-// @Param   id    query    string  true        "The id of the cert"
+// @Param   id     query    string  true        "The id ( owner/name ) of the cert"
 // @Param   body    body   object.Cert  true        "The details of the cert"
 // @Success 200 {object} controllers.Response The Response object
 // @router /update-cert [post]
 func (c *ApiController) UpdateCert() {
-	id := c.Input().Get("id")
+	id := c.Ctx.Input.Query("id")
 
 	var cert object.Cert
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &cert)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 
 	c.Data["json"] = wrapActionResponse(object.UpdateCert(id, &cert))
 	c.ServeJSON()
 }
 
+// AddCert
 // @Title AddCert
 // @Tag Cert API
 // @Description add cert
@@ -91,13 +157,15 @@ func (c *ApiController) AddCert() {
 	var cert object.Cert
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &cert)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 
 	c.Data["json"] = wrapActionResponse(object.AddCert(&cert))
 	c.ServeJSON()
 }
 
+// DeleteCert
 // @Title DeleteCert
 // @Tag Cert API
 // @Description delete cert
@@ -108,9 +176,47 @@ func (c *ApiController) DeleteCert() {
 	var cert object.Cert
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &cert)
 	if err != nil {
-		panic(err)
+		c.ResponseError(err.Error())
+		return
 	}
 
 	c.Data["json"] = wrapActionResponse(object.DeleteCert(&cert))
+	c.ServeJSON()
+}
+
+// UpdateCertDomainExpire
+// @Title UpdateCertDomainExpire
+// @Tag Cert API
+// @Description update cert domain expire time
+// @Param   id     query   string  true        "The ID of the cert"
+// @Success 200 {object} controllers.Response The Response object
+// @router /update-cert-domain-expire [post]
+func (c *ApiController) UpdateCertDomainExpire() {
+	if _, ok := c.RequireSignedIn(); !ok {
+		return
+	}
+
+	id := c.Ctx.Input.Query("id")
+	cert, err := object.GetCert(id)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	domainExpireTime, err := object.GetDomainExpireTime(cert.Name)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	if domainExpireTime == "" {
+		c.ResponseError("Failed to determine domain expiration time for domain " + cert.Name +
+			". Please verify that the domain is valid, publicly resolvable, and has a retrievable expiration date, " +
+			"or update the domain expiration time manually.")
+		return
+	}
+	cert.DomainExpireTime = domainExpireTime
+
+	c.Data["json"] = wrapActionResponse(object.UpdateCert(id, cert))
 	c.ServeJSON()
 }

@@ -12,136 +12,296 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import React, {Component} from "react";
+import React, {Component, Suspense, lazy} from "react";
 import "./App.less";
 import {Helmet} from "react-helmet";
 import * as Setting from "./Setting";
-import {DownOutlined, LogoutOutlined, SettingOutlined} from "@ant-design/icons";
-import {Avatar, BackTop, Dropdown, Layout, Menu, Card, Result, Button} from "antd";
-import {Link, Redirect, Route, Switch, withRouter} from "react-router-dom";
-import OrganizationListPage from "./OrganizationListPage";
-import OrganizationEditPage from "./OrganizationEditPage";
-import UserListPage from "./UserListPage";
-import UserEditPage from "./UserEditPage";
-import RoleListPage from "./RoleListPage";
-import RoleEditPage from "./RoleEditPage";
-import PermissionListPage from "./PermissionListPage";
-import PermissionEditPage from "./PermissionEditPage";
-import ProviderListPage from "./ProviderListPage";
-import ProviderEditPage from "./ProviderEditPage";
-import ApplicationListPage from "./ApplicationListPage";
-import ApplicationEditPage from "./ApplicationEditPage";
-import ResourceListPage from "./ResourceListPage";
-import LdapEditPage from "./LdapEditPage";
-import LdapSyncPage from "./LdapSyncPage";
-import TokenListPage from "./TokenListPage";
-import TokenEditPage from "./TokenEditPage";
-import RecordListPage from "./RecordListPage";
-import WebhookListPage from "./WebhookListPage";
-import WebhookEditPage from "./WebhookEditPage";
-import SyncerListPage from "./SyncerListPage";
-import SyncerEditPage from "./SyncerEditPage";
-import CertListPage from "./CertListPage";
-import CertEditPage from "./CertEditPage";
-import ProductListPage from "./ProductListPage";
-import ProductEditPage from "./ProductEditPage";
-import ProductBuyPage from "./ProductBuyPage";
-import PaymentListPage from "./PaymentListPage";
-import PaymentEditPage from "./PaymentEditPage";
-import PaymentResultPage from "./PaymentResultPage";
-import AccountPage from "./account/AccountPage";
-import HomePage from "./basic/HomePage";
-import CustomGithubCorner from "./CustomGithubCorner";
+import {setOrgIsTourVisible, setTourLogo} from "./TourConfig";
+import {StyleProvider, legacyLogicalPropertiesTransformer} from "@ant-design/cssinjs";
+import {GithubOutlined, InfoCircleFilled, ShareAltOutlined} from "@ant-design/icons";
+import {Alert, Button, ConfigProvider, Drawer, FloatButton, Layout, Result, Tooltip} from "antd";
+import {Route, Switch, withRouter} from "react-router-dom";
+import CustomGithubCorner from "./common/CustomGithubCorner";
 import * as Conf from "./Conf";
 
 import * as Auth from "./auth/Auth";
-import SignupPage from "./auth/SignupPage";
-import ResultPage from "./auth/ResultPage";
-import LoginPage from "./auth/LoginPage";
-import SelfLoginPage from "./auth/SelfLoginPage";
-import SelfForgetPage from "./auth/SelfForgetPage";
-import ForgetPage from "./auth/ForgetPage";
+import EntryPage from "./EntryPage";
 import * as AuthBackend from "./auth/AuthBackend";
 import AuthCallback from "./auth/AuthCallback";
-import SelectLanguageBox from "./SelectLanguageBox";
-import i18next from "i18next";
-import PromptPage from "./auth/PromptPage";
-import OdicDiscoveryPage from "./auth/OidcDiscoveryPage";
 import SamlCallback from "./auth/SamlCallback";
-import CasLogout from "./auth/CasLogout";
-import ModelListPage from "./ModelListPage";
-import ModelEditPage from "./ModelEditPage";
+import TelegramLogin from "./auth/TelegramLogin";
+import i18next from "i18next";
+import {withTranslation} from "react-i18next";
+const ManagementPage = lazy(() => import("./ManagementPage"));
+const {Footer, Content} = Layout;
 
-const {Header, Footer} = Layout;
+import {setTwoToneColor} from "@ant-design/icons";
+import * as ApplicationBackend from "./backend/ApplicationBackend";
+import * as Cookie from "cookie";
+
+// Ant Design locale imports
+import enUS from "antd/locale/en_US";
+import zhCN from "antd/locale/zh_CN";
+import zhTW from "antd/locale/zh_TW";
+import esES from "antd/locale/es_ES";
+import frFR from "antd/locale/fr_FR";
+import deDE from "antd/locale/de_DE";
+import idID from "antd/locale/id_ID";
+import jaJP from "antd/locale/ja_JP";
+import koKR from "antd/locale/ko_KR";
+import ruRU from "antd/locale/ru_RU";
+import viVN from "antd/locale/vi_VN";
+import ptBR from "antd/locale/pt_BR";
+import itIT from "antd/locale/it_IT";
+import msMY from "antd/locale/ms_MY";
+import trTR from "antd/locale/tr_TR";
+import arEG from "antd/locale/ar_EG";
+import heIL from "antd/locale/he_IL";
+import nlNL from "antd/locale/nl_NL";
+import plPL from "antd/locale/pl_PL";
+import fiFI from "antd/locale/fi_FI";
+import svSE from "antd/locale/sv_SE";
+import ukUA from "antd/locale/uk_UA";
+import faIR from "antd/locale/fa_IR";
+import csCZ from "antd/locale/cs_CZ";
+import skSK from "antd/locale/sk_SK";
+
+setTwoToneColor("rgb(87,52,211)");
+
+function getAntdLocale(language) {
+  const localeMap = {
+    "en": enUS,
+    "zh": zhCN,
+    "zh-tw": zhTW,
+    "es": esES,
+    "fr": frFR,
+    "de": deDE,
+    "id": idID,
+    "ja": jaJP,
+    "ko": koKR,
+    "ru": ruRU,
+    "vi": viVN,
+    "pt": ptBR,
+    "it": itIT,
+    "ms": msMY,
+    "tr": trTR,
+    "ar": arEG,
+    "he": heIL,
+    "nl": nlNL,
+    "pl": plPL,
+    "fi": fiFI,
+    "sv": svSE,
+    "uk": ukUA,
+    "fa": faIR,
+    "cs": csCZ,
+    "sk": skSK,
+    "kk": ruRU, // Use Russian for Kazakh as antd doesn't have Kazakh
+    "az": trTR, // Use Turkish for Azerbaijani as they're similar
+  };
+  return localeMap[language] || enUS;
+}
 
 class App extends Component {
   constructor(props) {
     super(props);
+    this.setThemeAlgorithm();
+    let storageThemeAlgorithm = [];
+    try {
+      storageThemeAlgorithm = localStorage.getItem("themeAlgorithm") ? JSON.parse(localStorage.getItem("themeAlgorithm")) : ["default"];
+    } catch {
+      storageThemeAlgorithm = ["default"];
+    }
     this.state = {
       classes: props,
       selectedMenuKey: 0,
       account: undefined,
+      accessToken: undefined,
       uri: null,
+      themeAlgorithm: storageThemeAlgorithm,
+      themeData: Conf.ThemeDefault,
+      logo: this.getLogo(storageThemeAlgorithm),
+      requiredEnableMfa: false,
+      isAiAssistantOpen: false,
+      application: undefined,
     };
-
     Setting.initServerUrl();
     Auth.initAuthWithConfig({
       serverUrl: Setting.ServerUrl,
-      appName: "app-built-in", // the application name of Casdoor itself, do not change it
+      appName: Conf.DefaultApplication, // the application used in Casdoor root path: "/"
     });
   }
 
   UNSAFE_componentWillMount() {
     this.updateMenuKey();
     this.getAccount();
+    this.getApplication();
   }
 
-  componentDidUpdate() {
-    // eslint-disable-next-line no-restricted-globals
+  componentDidUpdate(prevProps, prevState, snapshot) {
     const uri = location.pathname;
     if (this.state.uri !== uri) {
       this.updateMenuKey();
     }
+
+    if (this.state.account !== prevState.account) {
+      const requiredEnableMfa = Setting.isRequiredEnableMfa(this.state.account, this.state.account?.organization);
+      this.setState({
+        requiredEnableMfa: requiredEnableMfa,
+      });
+
+      if (requiredEnableMfa === true) {
+        const mfaType = Setting.getMfaItemsByRules(this.state.account, this.state.account?.organization, [Setting.MfaRuleRequired])
+          .find((item) => item.rule === Setting.MfaRuleRequired)?.name;
+        if (mfaType !== undefined) {
+          this.props.history.push(`/mfa/setup?mfaType=${mfaType}`, {from: "/login"});
+        }
+      }
+    }
+  }
+
+  shouldFlattenMenu() {
+    const organization = this.state.account?.organization;
+    const navItems = Setting.isLocalAdminUser(this.state.account) ? organization?.navItems : (organization?.userNavItems ?? []);
+
+    // If navItems is "all" or not configured, don't flatten
+    if (!Array.isArray(navItems) || navItems?.includes("all")) {
+      return false;
+    }
+
+    // Count how many valid menu items would be visible
+    // Filter out any invalid or non-existent menu items
+    const validMenuItems = [
+      "/", "/shortcuts", "/apps", // Home group
+      "/organizations", "/groups", "/users", "/invitations", // User Management
+      "/applications", "/providers", "/resources", "/certs", // Identity
+      "/roles", "/permissions", "/models", "/adapters", "/enforcers", // Authorization
+      "/sessions", "/records", "/tokens", "/verifications", // Logging & Auditing
+      "/products", "/orders", "/payments", "/plans", "/pricings", "/subscriptions", "/transactions", // Business
+      "/sysinfo", "/forms", "/syncers", "/webhooks", "/tickets", "/swagger", // Admin
+    ];
+
+    const count = navItems.filter(item => validMenuItems.includes(item)).length;
+    return count <= Conf.MaxItemsForFlatMenu;
+  }
+
+  getSelectedMenuKeyForFlatMenu(uri) {
+    // For flattened menu, return the actual child path instead of parent group
+    if (uri === "/" || uri.includes("/shortcuts") || uri.includes("/apps")) {
+      if (uri === "/") {
+        return "/";
+      } else if (uri.includes("/shortcuts")) {
+        return "/shortcuts";
+      } else if (uri.includes("/apps")) {
+        return "/apps";
+      }
+    } else if (uri.includes("/organizations") || uri.includes("/trees") || uri.includes("/groups") || uri.includes("/users") || uri.includes("/invitations")) {
+      if (uri.includes("/organizations")) {
+        return "/organizations";
+      } else if (uri.includes("/groups")) {
+        return "/groups";
+      } else if (uri.includes("/users")) {
+        return "/users";
+      } else if (uri.includes("/invitations")) {
+        return "/invitations";
+      }
+    } else if (uri.includes("/applications") || uri.includes("/providers") || uri.includes("/resources") || uri.includes("/certs")) {
+      if (uri.includes("/applications")) {
+        return "/applications";
+      } else if (uri.includes("/providers")) {
+        return "/providers";
+      } else if (uri.includes("/resources")) {
+        return "/resources";
+      } else if (uri.includes("/certs")) {
+        return "/certs";
+      }
+    } else if (uri.includes("/roles") || uri.includes("/permissions") || uri.includes("/models") || uri.includes("/adapters") || uri.includes("/enforcers")) {
+      if (uri.includes("/roles")) {
+        return "/roles";
+      } else if (uri.includes("/permissions")) {
+        return "/permissions";
+      } else if (uri.includes("/models")) {
+        return "/models";
+      } else if (uri.includes("/adapters")) {
+        return "/adapters";
+      } else if (uri.includes("/enforcers")) {
+        return "/enforcers";
+      }
+    } else if (uri.includes("/records") || uri.includes("/tokens") || uri.includes("/sessions") || uri.includes("/verifications")) {
+      if (uri.includes("/sessions")) {
+        return "/sessions";
+      } else if (uri.includes("/records")) {
+        return "/records";
+      } else if (uri.includes("/tokens")) {
+        return "/tokens";
+      } else if (uri.includes("/verifications")) {
+        return "/verifications";
+      }
+    } else if (uri.includes("/products") || uri.includes("/orders") || uri.includes("/payments") || uri.includes("/plans") || uri.includes("/pricings") || uri.includes("/subscriptions") || uri.includes("/transactions")) {
+      if (uri.includes("/products")) {
+        return "/products";
+      } else if (uri.includes("/orders")) {
+        return "/orders";
+      } else if (uri.includes("/payments")) {
+        return "/payments";
+      } else if (uri.includes("/plans")) {
+        return "/plans";
+      } else if (uri.includes("/pricings")) {
+        return "/pricings";
+      } else if (uri.includes("/subscriptions")) {
+        return "/subscriptions";
+      } else if (uri.includes("/transactions")) {
+        return "/transactions";
+      }
+    } else if (uri.includes("/sysinfo") || uri.includes("/forms") || uri.includes("/syncers") || uri.includes("/webhooks") || uri.includes("/tickets")) {
+      if (uri.includes("/sysinfo")) {
+        return "/sysinfo";
+      } else if (uri.includes("/forms")) {
+        return "/forms";
+      } else if (uri.includes("/syncers")) {
+        return "/syncers";
+      } else if (uri.includes("/webhooks")) {
+        return "/webhooks";
+      } else if (uri.includes("/tickets")) {
+        return "/tickets";
+      }
+    } else if (uri.includes("/signup")) {
+      return "/signup";
+    } else if (uri.includes("/login")) {
+      return "/login";
+    } else if (uri.includes("/result")) {
+      return "/result";
+    }
+    return -1;
   }
 
   updateMenuKey() {
-    // eslint-disable-next-line no-restricted-globals
     const uri = location.pathname;
     this.setState({
       uri: uri,
     });
-    if (uri === "/") {
-      this.setState({selectedMenuKey: "/"});
-    } else if (uri.includes("/organizations")) {
-      this.setState({selectedMenuKey: "/organizations"});
-    } else if (uri.includes("/users")) {
-      this.setState({selectedMenuKey: "/users"});
-    } else if (uri.includes("/roles")) {
-      this.setState({selectedMenuKey: "/roles"});
-    } else if (uri.includes("/permissions")) {
-      this.setState({selectedMenuKey: "/permissions"});
-    } else if (uri.includes("/models")) {
-      this.setState({selectedMenuKey: "/models"});
-    } else if (uri.includes("/providers")) {
-      this.setState({selectedMenuKey: "/providers"});
-    } else if (uri.includes("/applications")) {
-      this.setState({selectedMenuKey: "/applications"});
-    } else if (uri.includes("/resources")) {
-      this.setState({selectedMenuKey: "/resources"});
-    } else if (uri.includes("/tokens")) {
-      this.setState({selectedMenuKey: "/tokens"});
-    } else if (uri.includes("/records")) {
-      this.setState({selectedMenuKey: "/records"});
-    } else if (uri.includes("/webhooks")) {
-      this.setState({selectedMenuKey: "/webhooks"});
-    } else if (uri.includes("/syncers")) {
-      this.setState({selectedMenuKey: "/syncers"});
-    } else if (uri.includes("/certs")) {
-      this.setState({selectedMenuKey: "/certs"});
-    } else if (uri.includes("/products")) {
-      this.setState({selectedMenuKey: "/products"});
-    } else if (uri.includes("/payments")) {
-      this.setState({selectedMenuKey: "/payments"});
+
+    // Check if menu should be flattened and use appropriate key selection
+    if (this.shouldFlattenMenu()) {
+      const selectedKey = this.getSelectedMenuKeyForFlatMenu(uri);
+      this.setState({selectedMenuKey: selectedKey});
+      return;
+    }
+
+    // Original logic for grouped menu
+    if (uri === "/" || uri.includes("/shortcuts") || uri.includes("/apps")) {
+      this.setState({selectedMenuKey: "/home"});
+    } else if (uri.includes("/organizations") || uri.includes("/trees") || uri.includes("/groups") || uri.includes("/users") || uri.includes("/invitations")) {
+      this.setState({selectedMenuKey: "/orgs"});
+    } else if (uri.includes("/applications") || uri.includes("/providers") || uri.includes("/resources") || uri.includes("/certs")) {
+      this.setState({selectedMenuKey: "/identity"});
+    } else if (uri.includes("/roles") || uri.includes("/permissions") || uri.includes("/models") || uri.includes("/adapters") || uri.includes("/enforcers")) {
+      this.setState({selectedMenuKey: "/auth"});
+    } else if (uri.includes("/records") || uri.includes("/tokens") || uri.includes("/sessions") || uri.includes("/verifications")) {
+      this.setState({selectedMenuKey: "/logs"});
+    } else if (uri.includes("/product-store") || uri.includes("/products") || uri.includes("/orders") || uri.includes("/payments") || uri.includes("/plans") || uri.includes("/pricings") || uri.includes("/subscriptions") || uri.includes("/transactions")) {
+      this.setState({selectedMenuKey: "/business"});
+    } else if (uri.includes("/sysinfo") || uri.includes("/forms") || uri.includes("/syncers") || uri.includes("/webhooks") || uri.includes("/tickets")) {
+      this.setState({selectedMenuKey: "/admin"});
     } else if (uri.includes("/signup")) {
       this.setState({selectedMenuKey: "/signup"});
     } else if (uri.includes("/login")) {
@@ -181,11 +341,68 @@ class App extends Component {
     return "";
   }
 
+  getLogo(themes) {
+    return Setting.getLogo(themes);
+  }
+
+  setThemeAlgorithm() {
+    const currentUrl = window.location.href;
+    const url = new URL(currentUrl);
+    const themeType = url.searchParams.get("theme");
+    if (themeType === "dark" || themeType === "default") {
+      localStorage.setItem("themeAlgorithm", JSON.stringify([themeType]));
+    }
+  }
+
   setLanguage(account) {
-    let language = account?.language;
-    if (language !== "" && language !== i18next.language) {
+    const language = account?.language;
+    if (language !== null && language !== "" && language !== i18next.language) {
       Setting.setLanguage(language);
     }
+  }
+
+  setTheme = (theme, initThemeAlgorithm) => {
+    this.setState({
+      themeData: theme,
+    });
+
+    if (initThemeAlgorithm) {
+      if (localStorage.getItem("themeAlgorithm")) {
+        let storageThemeAlgorithm = [];
+        try {
+          storageThemeAlgorithm = JSON.parse(localStorage.getItem("themeAlgorithm"));
+        } catch {
+          storageThemeAlgorithm = ["default"];
+        }
+        this.setState({
+          logo: this.getLogo(storageThemeAlgorithm),
+          themeAlgorithm: storageThemeAlgorithm,
+        });
+        return;
+      }
+      this.setState({
+        logo: this.getLogo(Setting.getAlgorithmNames(theme)),
+        themeAlgorithm: Setting.getAlgorithmNames(theme),
+      });
+    }
+  };
+
+  getApplication() {
+    const applicationName = localStorage.getItem("applicationName");
+    if (!applicationName) {
+      return;
+    }
+    ApplicationBackend.getApplication("admin", applicationName)
+      .then((res) => {
+        if (res.status === "error") {
+          Setting.showMessage("error", res.msg);
+          return;
+        }
+
+        this.setState({
+          application: res.data,
+        });
+      });
   }
 
   getAccount() {
@@ -203,536 +420,335 @@ class App extends Component {
     }
 
     if (query !== "") {
-      window.history.replaceState({}, document.title, this.getUrlWithoutQuery());
+      const returnUrl = params.get("returnUrl");
+
+      let newUrl;
+      if (returnUrl) {
+        const newParams = new URLSearchParams();
+        newParams.set("returnUrl", returnUrl);
+        newUrl = window.location.pathname + "?" + newParams.toString();
+      } else {
+        newUrl = this.getUrlWithoutQuery();
+      }
+      window.history.replaceState({}, document.title, newUrl);
     }
 
     AuthBackend.getAccount(query)
       .then((res) => {
         let account = null;
+        let accessToken = null;
         if (res.status === "ok") {
           account = res.data;
           account.organization = res.data2;
+          accessToken = res.data.accessToken;
 
-          this.setLanguage(account);
+          if (!localStorage.getItem("language")) {
+            this.setLanguage(account);
+          }
+          this.setTheme(Setting.getThemeData(account.organization), Conf.InitThemeAlgorithm);
+          setTourLogo(account.organization.logo);
+          setOrgIsTourVisible(account.organization.enableTour);
         } else {
-          if (res.msg !== "Please sign in first") {
-            Setting.showMessage("error", `Failed to sign in: ${res.msg}`);
+          if (res.data !== "Please login first") {
+            Setting.showMessage("error", `${i18next.t("application:Failed to sign in")}: ${res.msg}`);
           }
         }
 
         this.setState({
           account: account,
+          accessToken: accessToken,
         });
-      });
-  }
-
-  logout() {
-    this.setState({
-      expired: false,
-      submitted: false,
-    });
-
-    AuthBackend.logout()
-      .then((res) => {
-        if (res.status === "ok") {
-          this.setState({
-            account: null
-          });
-
-          Setting.showMessage("success", "Logged out successfully");
-          let redirectUri = res.data2;
-          if (redirectUri !== null && redirectUri !== undefined && redirectUri !== "") {
-            Setting.goToLink(redirectUri);
-          }else{
-            Setting.goToLinkSoft(this, "/");
-          }
-        } else {
-          Setting.showMessage("error", `Failed to log out: ${res.msg}`);
-        }
       });
   }
 
   onUpdateAccount(account) {
     this.setState({
-      account: account
+      account: account,
     });
   }
 
-  handleRightDropdownClick(e) {
-    if (e.key === "/account") {
-      this.props.history.push("/account");
-    } else if (e.key === "/logout") {
-      this.logout();
-    }
-  }
-
-  renderAvatar() {
-    if (this.state.account.avatar === "") {
-      return (
-        <Avatar style={{backgroundColor: Setting.getAvatarColor(this.state.account.name), verticalAlign: "middle"}} size="large">
-          {Setting.getShortName(this.state.account.name)}
-        </Avatar>
-      );
-    } else {
-      return (
-        <Avatar src={this.state.account.avatar} style={{verticalAlign: "middle"}} size="large">
-          {Setting.getShortName(this.state.account.name)}
-        </Avatar>
-      );
-    }
-  }
-
-  renderRightDropdown() {
-    const menu = (
-      <Menu onClick={this.handleRightDropdownClick.bind(this)}>
-        <Menu.Item key="/account">
-          <SettingOutlined />
-          &nbsp;
-          {i18next.t("account:My Account")}
-        </Menu.Item>
-        <Menu.Item key="/logout">
-          <LogoutOutlined />
-          &nbsp;
-          {i18next.t("account:Logout")}
-        </Menu.Item>
-      </Menu>
-    );
-
+  renderFooter(logo, footerHtml) {
+    logo = logo ?? this.state.logo;
+    footerHtml = footerHtml ?? this.state.application?.footerHtml;
     return (
-      <Dropdown key="/rightDropDown" overlay={menu} className="rightDropDown">
-        <div className="ant-dropdown-link" style={{float: "right", cursor: "pointer"}}>
-          &nbsp;
-          &nbsp;
+      <React.Fragment>
+        {!this.state.account ? null : <div style={{display: "none"}} id="CasdoorApplicationName" value={this.state.account.signupApplication} />}
+        {!this.state.account ? null : <div style={{display: "none"}} id="CasdoorAccessToken" value={this.state.accessToken} />}
+        <Footer id="footer" style={
           {
-            this.renderAvatar()
+            textAlign: "center",
           }
-          &nbsp;
-          &nbsp;
-          {Setting.isMobile() ? null : Setting.getShortName(this.state.account.displayName)} &nbsp; <DownOutlined />
-          &nbsp;
-          &nbsp;
-          &nbsp;
-        </div>
-      </Dropdown>
-    );
-  }
-
-  renderAccount() {
-    let res = [];
-
-    if (this.state.account === undefined) {
-      return null;
-    } else if (this.state.account === null) {
-      // res.push(
-      //   <Menu.Item key="/signup" style={{float: 'right', marginRight: '20px'}}>
-      //     <Link to="/signup">
-      //       {i18next.t("account:Sign Up")}
-      //     </Link>
-      //   </Menu.Item>
-      // );
-      // res.push(
-      //   <Menu.Item key="/login" style={{float: 'right'}}>
-      //     <Link to="/login">
-      //       {i18next.t("account:Login")}
-      //     </Link>
-      //   </Menu.Item>
-      // );
-    } else {
-      res.push(this.renderRightDropdown());
-    }
-
-    return res;
-  }
-
-  renderMenu() {
-    let res = [];
-
-    if (this.state.account === null || this.state.account === undefined) {
-      return [];
-    }
-
-    res.push(
-      <Menu.Item key="/">
-        <Link to="/">
-          {i18next.t("general:Home")}
-        </Link>
-      </Menu.Item>
-    );
-
-    if (Setting.isAdminUser(this.state.account)) {
-      res.push(
-        <Menu.Item key="/organizations">
-          <Link to="/organizations">
-            {i18next.t("general:Organizations")}
-          </Link>
-        </Menu.Item>
-      );
-      res.push(
-        <Menu.Item key="/users">
-          <Link to="/users">
-            {i18next.t("general:Users")}
-          </Link>
-        </Menu.Item>
-      );
-      res.push(
-        <Menu.Item key="/roles">
-          <Link to="/roles">
-            {i18next.t("general:Roles")}
-          </Link>
-        </Menu.Item>
-      );
-      res.push(
-        <Menu.Item key="/permissions">
-          <Link to="/permissions">
-            {i18next.t("general:Permissions")}
-          </Link>
-        </Menu.Item>
-      );
-      res.push(
-        <Menu.Item key="/models">
-          <Link to="/models">
-            {i18next.t("general:Models")}
-          </Link>
-        </Menu.Item>
-      );
-      res.push(
-        <Menu.Item key="/providers">
-          <Link to="/providers">
-            {i18next.t("general:Providers")}
-          </Link>
-        </Menu.Item>
-      );
-      res.push(
-        <Menu.Item key="/applications">
-          <Link to="/applications">
-            {i18next.t("general:Applications")}
-          </Link>
-        </Menu.Item>
-      );
-    }
-
-    if (Setting.isAdminUser(this.state.account)) {
-      res.push(
-        <Menu.Item key="/resources">
-          <Link to="/resources">
-            {i18next.t("general:Resources")}
-          </Link>
-        </Menu.Item>
-      );
-      res.push(
-        <Menu.Item key="/tokens">
-          <Link to="/tokens">
-            {i18next.t("general:Tokens")}
-          </Link>
-        </Menu.Item>
-      );
-      res.push(
-        <Menu.Item key="/records">
-          <Link to="/records">
-            {i18next.t("general:Records")}
-          </Link>
-        </Menu.Item>
-      );
-      res.push(
-        <Menu.Item key="/webhooks">
-          <Link to="/webhooks">
-            {i18next.t("general:Webhooks")}
-          </Link>
-        </Menu.Item>
-      );
-      res.push(
-        <Menu.Item key="/syncers">
-          <Link to="/syncers">
-            {i18next.t("general:Syncers")}
-          </Link>
-        </Menu.Item>
-      );
-      res.push(
-        <Menu.Item key="/certs">
-          <Link to="/certs">
-            {i18next.t("general:Certs")}
-          </Link>
-        </Menu.Item>
-      );
-
-      if (Conf.EnableExtraPages) {
-        res.push(
-          <Menu.Item key="/products">
-            <Link to="/products">
-              {i18next.t("general:Products")}
-            </Link>
-          </Menu.Item>
-        );
-        res.push(
-          <Menu.Item key="/payments">
-            <Link to="/payments">
-              {i18next.t("general:Payments")}
-            </Link>
-          </Menu.Item>
-        );
-      }
-
-      res.push(
-        <Menu.Item key="/swagger">
-          <a target="_blank" rel="noreferrer" href={Setting.isLocalhost() ? `${Setting.ServerUrl}/swagger` : "/swagger"}>
-            {i18next.t("general:Swagger")}
-          </a>
-        </Menu.Item>
-      );
-    }
-
-    return res;
-  }
-
-  renderHomeIfLoggedIn(component) {
-    if (this.state.account !== null && this.state.account !== undefined) {
-      return <Redirect to="/" />;
-    } else {
-      return component;
-    }
-  }
-
-  renderLoginIfNotLoggedIn(component) {
-    if (this.state.account === null) {
-      sessionStorage.setItem("from", window.location.pathname);
-      return <Redirect to="/login" />;
-    } else if (this.state.account === undefined) {
-      return null;
-    } else {
-      return component;
-    }
-  }
-
-  isStartPages() {
-    return window.location.pathname.startsWith("/login") ||
-      window.location.pathname.startsWith("/signup") ||
-      window.location.pathname === "/";
-  }
-
-  renderRouter() {
-    return(
-      <div>
-        <Switch>
-          <Route exact path="/result" render={(props) => this.renderHomeIfLoggedIn(<ResultPage {...props} />)} />
-          <Route exact path="/result/:applicationName" render={(props) => this.renderHomeIfLoggedIn(<ResultPage {...props} />)} />
-          <Route exact path="/" render={(props) => this.renderLoginIfNotLoggedIn(<HomePage account={this.state.account} {...props} />)} />
-          <Route exact path="/account" render={(props) => this.renderLoginIfNotLoggedIn(<AccountPage account={this.state.account} {...props} />)} />
-          <Route exact path="/organizations" render={(props) => this.renderLoginIfNotLoggedIn(<OrganizationListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/organizations/:organizationName" render={(props) => this.renderLoginIfNotLoggedIn(<OrganizationEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/organizations/:organizationName/users" render={(props) => this.renderLoginIfNotLoggedIn(<UserListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/users" render={(props) => this.renderLoginIfNotLoggedIn(<UserListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/users/:organizationName/:userName" render={(props) => <UserEditPage account={this.state.account} {...props} />} />
-          <Route exact path="/roles" render={(props) => this.renderLoginIfNotLoggedIn(<RoleListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/roles/:organizationName/:roleName" render={(props) => this.renderLoginIfNotLoggedIn(<RoleEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/permissions" render={(props) => this.renderLoginIfNotLoggedIn(<PermissionListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/permissions/:organizationName/:permissionName" render={(props) => this.renderLoginIfNotLoggedIn(<PermissionEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/models" render={(props) => this.renderLoginIfNotLoggedIn(<ModelListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/models/:organizationName/:modelName" render={(props) => this.renderLoginIfNotLoggedIn(<ModelEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/providers" render={(props) => this.renderLoginIfNotLoggedIn(<ProviderListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/providers/:providerName" render={(props) => this.renderLoginIfNotLoggedIn(<ProviderEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/applications" render={(props) => this.renderLoginIfNotLoggedIn(<ApplicationListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/applications/:applicationName" render={(props) => this.renderLoginIfNotLoggedIn(<ApplicationEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/resources" render={(props) => this.renderLoginIfNotLoggedIn(<ResourceListPage account={this.state.account} {...props} />)} />
-          {/* <Route exact path="/resources/:resourceName" render={(props) => this.renderLoginIfNotLoggedIn(<ResourceEditPage account={this.state.account} {...props} />)}/>*/}
-          <Route exact path="/ldap/:ldapId" render={(props) => this.renderLoginIfNotLoggedIn(<LdapEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/ldap/sync/:ldapId" render={(props) => this.renderLoginIfNotLoggedIn(<LdapSyncPage account={this.state.account} {...props} />)} />
-          <Route exact path="/tokens" render={(props) => this.renderLoginIfNotLoggedIn(<TokenListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/tokens/:tokenName" render={(props) => this.renderLoginIfNotLoggedIn(<TokenEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/webhooks" render={(props) => this.renderLoginIfNotLoggedIn(<WebhookListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/webhooks/:webhookName" render={(props) => this.renderLoginIfNotLoggedIn(<WebhookEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/syncers" render={(props) => this.renderLoginIfNotLoggedIn(<SyncerListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/syncers/:syncerName" render={(props) => this.renderLoginIfNotLoggedIn(<SyncerEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/certs" render={(props) => this.renderLoginIfNotLoggedIn(<CertListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/certs/:certName" render={(props) => this.renderLoginIfNotLoggedIn(<CertEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/products" render={(props) => this.renderLoginIfNotLoggedIn(<ProductListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/products/:productName" render={(props) => this.renderLoginIfNotLoggedIn(<ProductEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/products/:productName/buy" render={(props) => this.renderLoginIfNotLoggedIn(<ProductBuyPage account={this.state.account} {...props} />)} />
-          <Route exact path="/payments" render={(props) => this.renderLoginIfNotLoggedIn(<PaymentListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/payments/:paymentName" render={(props) => this.renderLoginIfNotLoggedIn(<PaymentEditPage account={this.state.account} {...props} />)} />
-          <Route exact path="/payments/:paymentName/result" render={(props) => this.renderLoginIfNotLoggedIn(<PaymentResultPage account={this.state.account} {...props} />)} />
-          <Route exact path="/records" render={(props) => this.renderLoginIfNotLoggedIn(<RecordListPage account={this.state.account} {...props} />)} />
-          <Route exact path="/.well-known/openid-configuration" render={(props) => <OdicDiscoveryPage />} />
-          <Route path="" render={() => <Result status="404" title="404 NOT FOUND" subTitle={i18next.t("general:Sorry, the page you visited does not exist.")}
-            extra={<a href="/"><Button type="primary">{i18next.t("general:Back Home")}</Button></a>} />} />
-        </Switch>
-      </div>
-    );
-  }
-
-  renderContent() {
-    if (!Setting.isMobile()) {
-      return (
-        <div style={{display: "flex", flex: "auto", width:"100%", flexDirection: "column"}}>
-          <Layout style={{display: "flex", alignItems: "stretch"}}>
-            <Header style={{padding: "0", marginBottom: "3px"}}>
-              {
-                Setting.isMobile() ? null : (
-                  <Link to={"/"}>
-                    <div className="logo" />
-                  </Link>
+        }>
+          {
+            footerHtml && footerHtml !== "" ?
+              <React.Fragment>
+                <div dangerouslySetInnerHTML={{__html: footerHtml}} />
+              </React.Fragment>
+              : (
+                Conf.CustomFooter !== null ? Conf.CustomFooter : (
+                  <React.Fragment>
+                    Powered by <a target="_blank" href="https://casdoor.org" rel="noreferrer"><img style={{paddingBottom: "3px"}} height={"20px"} alt={"Casdoor"} src={logo} /></a>
+                  </React.Fragment>
                 )
-              }
-              <div>
-                <Menu
-                  // theme="dark"
-                  mode={(Setting.isMobile() && this.isStartPages()) ? "inline" : "horizontal"}
-                  selectedKeys={[`${this.state.selectedMenuKey}`]}
-                  style={{lineHeight: "64px", width: "80%", position: "absolute"}}
-                >
-                  {
-                    this.renderMenu()
-                  }
-                </Menu>
-                {
-                  this.renderAccount()
-                }
-                <SelectLanguageBox />
-              </div>
-            </Header>
-            <Layout style={{backgroundColor: "#f5f5f5", alignItems: "stretch"}}>
-              <Card className="content-warp-card">
-                {
-                  this.renderRouter()
-                }
-              </Card>
-            </Layout>
-          </Layout>
-        </div>
-      );
-    } else {
-      return(
-        <div>
-          <Header style={{padding: "0", marginBottom: "3px"}}>
-            {
-              Setting.isMobile() ? null : (
-                <Link to={"/"}>
-                  <div className="logo" />
-                </Link>
               )
-            }
-            <Menu
-            // theme="dark"
-              mode={(Setting.isMobile() && this.isStartPages()) ? "inline" : "horizontal"}
-              selectedKeys={[`${this.state.selectedMenuKey}`]}
-              style={{lineHeight: "64px"}}
-            >
-              {
-                this.renderMenu()
-              }
-              <div style = {{float: "right"}}>
-                {
-                  this.renderAccount()
-                }
-                <SelectLanguageBox />
-              </div>
-            </Menu>
-          </Header>
-          {
-            this.renderRouter()
           }
-        </div>
-      );
-    }
+        </Footer>
+      </React.Fragment>
+    );
   }
 
-  renderFooter() {
-    // How to keep your footer where it belongs ?
-    // https://www.freecodecamp.org/neyarnws/how-to-keep-your-footer-where-it-belongs-59c6aa05c59c/
-
+  renderAiAssistant() {
     return (
-      <Footer id="footer" style={
-        {
-          borderTop: "1px solid #e8e8e8",
-          backgroundColor: "white",
-          textAlign: "center",
+      <Drawer
+        title={
+          <React.Fragment>
+            <Tooltip title="Want to deploy your own AI assistant? Click to learn more!">
+              <a target="_blank" rel="noreferrer" href={"https://casdoor.com"}>
+                <img style={{width: "20px", marginRight: "10px", marginBottom: "2px"}} alt="help" src="https://casbin.org/img/casbin.svg" />
+                AI Assistant
+              </a>
+            </Tooltip>
+            <a className="custom-link" style={{float: "right", marginTop: "2px"}} target="_blank" rel="noreferrer" href={`${Conf.AiAssistantUrl}`}>
+              <ShareAltOutlined className="custom-link" style={{fontSize: "20px", color: "rgb(140,140,140)"}} />
+            </a>
+            <a className="custom-link" style={{float: "right", marginRight: "30px", marginTop: "2px"}} target="_blank" rel="noreferrer" href={"https://github.com/casibase/casibase"}>
+              <GithubOutlined className="custom-link" style={{fontSize: "20px", color: "rgb(140,140,140)"}} />
+            </a>
+          </React.Fragment>
         }
-      }>
-        Made with <span style={{color: "rgb(255, 255, 255)"}}>❤️</span> by <a style={{fontWeight: "bold", color: "black"}} target="_blank" href="https://casdoor.org" rel="noreferrer">Casdoor</a>
-      </Footer>
+        placement="right"
+        width={500}
+        mask={false}
+        onClose={() => {
+          this.setState({
+            isAiAssistantOpen: false,
+          });
+        }}
+        open={this.state.isAiAssistantOpen}
+      >
+        <iframe id="iframeHelper" title={"iframeHelper"} src={`${Conf.AiAssistantUrl}/?isRaw=1`} width="100%" height="100%" scrolling="no" frameBorder="no" />
+      </Drawer>
     );
   }
 
   isDoorPages() {
+    return this.isEntryPages() ||
+      window.location.pathname.startsWith("/callback") ||
+      window.location.pathname.startsWith("/telegram-login");
+  }
+
+  isEntryPages() {
     return window.location.pathname.startsWith("/signup") ||
       window.location.pathname.startsWith("/login") ||
-      window.location.pathname.startsWith("/callback") ||
-      window.location.pathname.startsWith("/prompt") ||
       window.location.pathname.startsWith("/forget") ||
-      window.location.pathname.startsWith("/cas");
+      window.location.pathname.startsWith("/prompt") ||
+      window.location.pathname.startsWith("/result") ||
+      window.location.pathname.startsWith("/cas") ||
+      window.location.pathname.startsWith("/select-plan") ||
+      window.location.pathname.startsWith("/buy-plan") ||
+      window.location.pathname.startsWith("/qrcode") ||
+      window.location.pathname.startsWith("/consent") ||
+      window.location.pathname.startsWith("/captcha");
+  }
+
+  onClick = ({key}) => {
+    if (key !== "/swagger" && key !== "/records") {
+      if (this.state.requiredEnableMfa) {
+        Setting.showMessage("info", "Please enable MFA first!");
+      } else {
+        this.props.history.push(key);
+      }
+    }
+  };
+
+  onLoginSuccess(redirectUrl) {
+    window.google?.accounts?.id?.cancel();
+    if (redirectUrl) {
+      localStorage.setItem("mfaRedirectUrl", redirectUrl);
+    }
+    this.getAccount();
   }
 
   renderPage() {
     if (this.isDoorPages()) {
+      let themeData = this.state.themeData;
+      let logo = this.state.logo;
+      let footerHtml = null;
+      if (this.state.organization === undefined) {
+        const curCookie = Cookie.parse(document.cookie);
+        if (curCookie["organizationTheme"] && curCookie["organizationTheme"] !== "null") {
+          themeData = JSON.parse(curCookie["organizationTheme"]);
+        }
+        if (curCookie["organizationLogo"] && curCookie["organizationLogo"] !== "") {
+          logo = curCookie["organizationLogo"];
+        }
+        if (curCookie["organizationFootHtml"] && curCookie["organizationFootHtml"] !== "") {
+          footerHtml = curCookie["organizationFootHtml"];
+        }
+      }
+
       return (
-        <div>
-          <Switch>
-            <Route exact path="/signup" render={(props) => this.renderHomeIfLoggedIn(<SignupPage account={this.state.account} {...props} />)} />
-            <Route exact path="/signup/:applicationName" render={(props) => this.renderHomeIfLoggedIn(<SignupPage account={this.state.account} {...props} onUpdateAccount={(account) => {this.onUpdateAccount(account);}} />)} />
-            <Route exact path="/login" render={(props) => this.renderHomeIfLoggedIn(<SelfLoginPage account={this.state.account} {...props} />)} />
-            <Route exact path="/signup/oauth/authorize" render={(props) => <LoginPage account={this.state.account} type={"code"} mode={"signup"} {...props} onUpdateAccount={(account) => {this.onUpdateAccount(account);}} />} />
-            <Route exact path="/login/oauth/authorize" render={(props) => <LoginPage account={this.state.account} type={"code"} mode={"signin"} {...props} onUpdateAccount={(account) => {this.onUpdateAccount(account);}} />} />
-            <Route exact path="/login/saml/authorize/:owner/:applicationName" render={(props) => <LoginPage account={this.state.account} type={"saml"} mode={"signin"} {...props} onUpdateAccount={(account) => {this.onUpdateAccount(account);}} />} />
-            <Route exact path="/cas/:owner/:casApplicationName/logout" render={(props) => this.renderHomeIfLoggedIn(<CasLogout clearAccount={() => this.setState({account: null})} {...props} />)} />
-            <Route exact path="/cas/:owner/:casApplicationName/login" render={(props) => {return (<LoginPage type={"cas"} mode={"signup"} account={this.state.account} {...props} />);}} />
-            <Route exact path="/callback" component={AuthCallback} />
-            <Route exact path="/callback/saml" component={SamlCallback} />
-            <Route exact path="/forget" render={(props) => this.renderHomeIfLoggedIn(<SelfForgetPage {...props} />)} />
-            <Route exact path="/forget/:applicationName" render={(props) => this.renderHomeIfLoggedIn(<ForgetPage {...props} />)} />
-            <Route exact path="/prompt" render={(props) => this.renderLoginIfNotLoggedIn(<PromptPage account={this.state.account} {...props} />)} />
-            <Route exact path="/prompt/:applicationName" render={(props) => this.renderLoginIfNotLoggedIn(<PromptPage account={this.state.account} onUpdateAccount={(account) => {this.onUpdateAccount(account);}} {...props} />)} />
-            <Route path="" render={() => <Result status="404" title="404 NOT FOUND" subTitle={i18next.t("general:Sorry, the page you visited does not exist.")}
-              extra={<a href="/"><Button type="primary">{i18next.t("general:Back Home")}</Button></a>} />} />
-          </Switch>
-          {
-            this.renderFooter()
-          }
-        </div>
+        <ConfigProvider
+          locale={getAntdLocale(Setting.getLanguage())}
+          theme={{
+            token: {
+              colorPrimary: themeData.colorPrimary,
+              borderRadius: themeData.borderRadius,
+            },
+            algorithm: Setting.getAlgorithm(this.state.themeAlgorithm),
+          }}>
+          <StyleProvider hashPriority="high" transformers={[legacyLogicalPropertiesTransformer]}>
+            <Layout id="parent-area">
+              <Content style={{display: "flex", justifyContent: "center"}}>
+                {
+                  this.isEntryPages() ?
+                    <EntryPage
+                      account={this.state.account}
+                      theme={this.state.themeData}
+                      themeAlgorithm={this.state.themeAlgorithm}
+                      requiredEnableMfa={this.state.requiredEnableMfa}
+                      updateApplication={(application) => {
+                        this.setState({
+                          application: application,
+                        });
+                      }}
+                      onLoginSuccess={(redirectUrl) => {this.onLoginSuccess(redirectUrl);}}
+                      onUpdateAccount={(account) => this.onUpdateAccount(account)}
+                      updataThemeData={this.setTheme}
+                    /> :
+                    <Switch>
+                      <Route exact path="/callback" render={(props) => <AuthCallback {...props} {...this.props} application={this.state.application} onLoginSuccess={(redirectUrl) => {this.onLoginSuccess(redirectUrl);}} />} />
+                      <Route exact path="/callback/saml" render={(props) => <SamlCallback {...props} {...this.props} application={this.state.application} onLoginSuccess={(redirectUrl) => {this.onLoginSuccess(redirectUrl);}} />} />
+                      <Route exact path="/telegram-login" render={(props) => <TelegramLogin {...props} {...this.props} />} />
+                      <Route path="" render={() => <Result status="404" title="404 NOT FOUND" subTitle={i18next.t("general:Sorry, the page you visited does not exist.")}
+                        extra={<a href="/"><Button type="primary">{i18next.t("general:Back Home")}</Button></a>} />} />
+                    </Switch>
+                }
+              </Content>
+              {
+                this.renderFooter(logo, footerHtml)
+              }
+              {
+                this.renderAiAssistant()
+              }
+            </Layout>
+          </StyleProvider>
+        </ConfigProvider>
       );
+    }
+    return (
+      <React.Fragment>
+        {/* { */}
+        {/*   this.renderBanner() */}
+        {/* } */}
+        <FloatButton.BackTop />
+        <CustomGithubCorner />
+        {
+          <Suspense fallback={null}>
+            <Layout id="parent-area">
+              <ManagementPage
+                account={this.state.account}
+                application={this.state.application}
+                uri={this.state.uri}
+                themeData={this.state.themeData}
+                themeAlgorithm={this.state.themeAlgorithm}
+                selectedMenuKey={this.state.selectedMenuKey}
+                requiredEnableMfa={this.state.requiredEnableMfa}
+                menuVisible={this.state.menuVisible}
+                logo={this.state.logo}
+                onChangeTheme={this.setTheme}
+                onClick={this.onClick}
+                onfinish={() => {
+                  this.setState({requiredEnableMfa: false});
+                }}
+                openAiAssistant={() => {
+                  this.setState({
+                    isAiAssistantOpen: true,
+                  });
+                }}
+                setLogoAndThemeAlgorithm={(nextThemeAlgorithm) => {
+                  this.setState({
+                    themeAlgorithm: nextThemeAlgorithm,
+                    logo: this.getLogo(nextThemeAlgorithm),
+                  });
+                  localStorage.setItem("themeAlgorithm", JSON.stringify(nextThemeAlgorithm));
+                }}
+                setLogoutState={() => {
+                  this.setState({
+                    account: null,
+                  });
+                }}
+              />
+              {
+                this.renderFooter()
+              }
+              {
+                this.renderAiAssistant()
+              }
+            </Layout>
+          </Suspense>
+        }
+      </React.Fragment>
+    );
+  }
+
+  renderBanner() {
+    if (!Conf.IsDemoMode) {
+      return null;
+    }
+
+    const language = Setting.getLanguage();
+    if (language === "en" || language === "zh") {
+      return null;
     }
 
     return (
-      <div id="parent-area">
-        <BackTop />
-        <CustomGithubCorner />
-        <div id="content-wrap" style={{flexDirection: "column"}}>
-          {
-            this.renderContent()
-          }
+      <Alert type="info" banner showIcon={false} closable message={
+        <div style={{textAlign: "center"}}>
+          <InfoCircleFilled style={{color: "rgb(87,52,211)"}} />
+          &nbsp;&nbsp;
+          {i18next.t("general:Found some texts still not translated? Please help us translate at")}
+          &nbsp;
+          <a target="_blank" rel="noreferrer" href={"https://crowdin.com/project/casdoor-site"}>
+            Crowdin
+          </a>
+          &nbsp;!&nbsp;🙏
         </div>
-        {
-          this.renderFooter()
-        }
-      </div>
+      } />
     );
   }
 
   render() {
-    if (this.state.account === undefined || this.state.account === null) {
-      return (
-        <React.Fragment>
-          <Helmet>
-            <link rel="icon" href={"https://cdn.casdoor.com/static/favicon.png"} />
-          </Helmet>
-          {
-            this.renderPage()
-          }
-        </React.Fragment>
-      );
-    }
-
-    const organization = this.state.account.organization;
     return (
       <React.Fragment>
-        <Helmet>
-          <title>{organization.displayName}</title>
-          <link rel="icon" href={organization.favicon} />
-        </Helmet>
-        {
-          this.renderPage()
+        {(this.state.account === undefined || this.state.account === null) ?
+          <Helmet>
+            <link rel="icon" href={"https://cdn.casdoor.com/static/favicon.png"} />
+          </Helmet> :
+          <Helmet>
+            <title>{this.state.account.organization?.displayName}</title>
+            <link rel="icon" href={this.state.account.organization?.favicon} />
+          </Helmet>
         }
+        <ConfigProvider
+          locale={getAntdLocale(Setting.getLanguage())}
+          theme={{
+            token: {
+              colorPrimary: this.state.themeData.colorPrimary,
+              colorInfo: this.state.themeData.colorPrimary,
+              borderRadius: this.state.themeData.borderRadius,
+            },
+            algorithm: Setting.getAlgorithm(this.state.themeAlgorithm),
+          }}>
+          <StyleProvider hashPriority="high" transformers={[legacyLogicalPropertiesTransformer]}>
+            {
+              this.renderPage()
+            }
+          </StyleProvider>
+        </ConfigProvider>
       </React.Fragment>
     );
   }
 }
 
-export default withRouter(App);
+export default withRouter(withTranslation()(App));

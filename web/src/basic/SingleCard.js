@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import React from "react";
-import {Card, Col} from "antd";
+import {Card, Col, Tag} from "antd";
 import * as Setting from "../Setting";
 import {withRouter} from "react-router-dom";
 
@@ -27,37 +27,65 @@ class SingleCard extends React.Component {
     };
   }
 
-  renderCardMobile(logo, link, title, desc, time, isSingle) {
+  wrappedAsSilentSigninLink(link) {
+    if (link.startsWith("http")) {
+      link += link.includes("?") ? "&silentSignin=1" : "?silentSignin=1";
+    }
+    return link;
+  }
+
+  renderCardMobile(logo, link, title, desc, time, tags, isSingle) {
     const gridStyle = {
       width: "100vw",
       textAlign: "center",
       cursor: "pointer",
     };
+    const silentSigninLink = this.wrappedAsSilentSigninLink(link);
 
     return (
-      <Card.Grid style={gridStyle} onClick={() => Setting.goToLinkSoft(this, link)}>
-        <img src={logo} alt="logo" height={60} style={{marginBottom: "20px"}} />
+      <Card.Grid style={gridStyle} onClick={() => Setting.goToLinkSoft(this, silentSigninLink)}>
+        <img src={logo} alt="logo" width={"100%"} style={{marginBottom: "20px"}} />
         <Meta
           title={title}
           description={desc}
+          style={{justifyContent: "center"}}
         />
+        {this.renderTags(tags)}
       </Card.Grid>
     );
   }
 
-  renderCard(logo, link, title, desc, time, isSingle) {
+  renderTags(tags) {
+    if (!tags || !Array.isArray(tags) || tags.length === 0) {
+      return null;
+    }
+
+    return (
+      <div style={{marginTop: "8px"}}>
+        {tags.map(tag => (
+          <Tag key={tag.name} color={tag.color} style={{marginRight: "4px"}}>
+            {tag.name}
+          </Tag>
+        ))}
+      </div>
+    );
+  }
+
+  renderCard(logo, link, title, desc, time, tags, isSingle) {
+    const silentSigninLink = this.wrappedAsSilentSigninLink(link);
+
     return (
       <Col style={{paddingLeft: "20px", paddingRight: "20px", paddingBottom: "20px", marginBottom: "20px"}} span={6}>
         <Card
           hoverable
           cover={
-            <img alt="logo" src={logo} style={{width: "100%", height: "210px", objectFit: "scale-down"}} />
+            <img alt="logo" src={logo} style={{width: "100%", height: "200px", padding: "20px", objectFit: "scale-down"}} />
           }
-          onClick={() => Setting.goToLinkSoft(this, link)}
-          style={isSingle ? {width: "320px"} : {width: "100%"}}
+          onClick={() => Setting.goToLinkSoft(this, silentSigninLink)}
+          style={isSingle ? {width: "320px", height: "100%"} : {width: "100%", height: "100%"}}
         >
           <Meta title={title} description={desc} />
-          <br />
+          {this.renderTags(tags)}
           <br />
           <Meta title={""} description={Setting.getFormattedDateShort(time)} />
         </Card>
@@ -67,9 +95,9 @@ class SingleCard extends React.Component {
 
   render() {
     if (Setting.isMobile()) {
-      return this.renderCardMobile(this.props.logo, this.props.link, this.props.title, this.props.desc, this.props.time, this.props.isSingle);
+      return this.renderCardMobile(this.props.logo, this.props.link, this.props.title, this.props.desc, this.props.time, this.props.tags, this.props.isSingle);
     } else {
-      return this.renderCard(this.props.logo, this.props.link, this.props.title, this.props.desc, this.props.time, this.props.isSingle);
+      return this.renderCard(this.props.logo, this.props.link, this.props.title, this.props.desc, this.props.time, this.props.tags, this.props.isSingle);
     }
   }
 }

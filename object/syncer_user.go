@@ -15,71 +15,23 @@
 package object
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/casdoor/casdoor/util"
-	"xorm.io/core"
 )
 
 type OriginalUser = User
 
-type Credential struct {
-	Value string `json:"value"`
-	Salt  string `json:"salt"`
-}
-
 func (syncer *Syncer) getOriginalUsers() ([]*OriginalUser, error) {
-	sql := fmt.Sprintf("select * from %s", syncer.getTable())
-	results, err := syncer.Adapter.Engine.QueryString(sql)
-	if err != nil {
-		return nil, err
-	}
-
-	return syncer.getOriginalUsersFromMap(results), nil
-}
-
-func (syncer *Syncer) getOriginalUserMap() ([]*OriginalUser, map[string]*OriginalUser, error) {
-	users, err := syncer.getOriginalUsers()
-	if err != nil {
-		return users, nil, err
-	}
-
-	m := map[string]*OriginalUser{}
-	for _, user := range users {
-		m[user.Id] = user
-	}
-	return users, m, nil
+	provider := GetSyncerProvider(syncer)
+	return provider.GetOriginalUsers()
 }
 
 func (syncer *Syncer) addUser(user *OriginalUser) (bool, error) {
-	m := syncer.getMapFromOriginalUser(user)
-	keyString, valueString := syncer.getSqlKeyValueStringFromMap(m)
-
-	sql := fmt.Sprintf("insert into %s (%s) values (%s)", syncer.getTable(), keyString, valueString)
-	res, err := syncer.Adapter.Engine.Exec(sql)
-	if err != nil {
-		return false, err
-	}
-
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-
-	return affected != 0, nil
+	provider := GetSyncerProvider(syncer)
+	return provider.AddUser(user)
 }
-
-/*func (syncer *Syncer) getOriginalColumns() []string {
-	res := []string{}
-	for _, tableColumn := range syncer.TableColumns {
-		if tableColumn.CasdoorName != "Id" {
-			res = append(res, tableColumn.Name)
-		}
-	}
-	return res
-}*/
 
 func (syncer *Syncer) getCasdoorColumns() []string {
 	res := []string{}
@@ -93,39 +45,44 @@ func (syncer *Syncer) getCasdoorColumns() []string {
 }
 
 func (syncer *Syncer) updateUser(user *OriginalUser) (bool, error) {
-	m := syncer.getMapFromOriginalUser(user)
-	pkValue := m[syncer.TablePrimaryKey]
-	delete(m, syncer.TablePrimaryKey)
-	setString := syncer.getSqlSetStringFromMap(m)
-
-	sql := fmt.Sprintf("update %s set %s where %s = %s", syncer.getTable(), setString, syncer.TablePrimaryKey, pkValue)
-	res, err := syncer.Adapter.Engine.Exec(sql)
-	if err != nil {
-		return false, err
-	}
-
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-
-	return affected != 0, nil
+	provider := GetSyncerProvider(syncer)
+	return provider.UpdateUser(user)
 }
 
-func (syncer *Syncer) updateUserForOriginalFields(user *User) (bool, error) {
-	owner, name := util.GetOwnerAndNameFromId(user.GetId())
-	oldUser := getUserById(owner, name)
-	if oldUser == nil {
+func (syncer *Syncer) updateUserForOriginalFields(user *User, key string) (bool, error) {
+	var err error
+	oldUser := User{}
+
+	existed, err := ormer.Engine.Where(key+" = ? and owner = ?", syncer.getUserValue(user, key), user.Owner).Get(&oldUser)
+	if err != nil {
+		return false, err
+	}
+	if !existed {
 		return false, nil
 	}
 
 	if user.Avatar != oldUser.Avatar && user.Avatar != "" {
-		user.PermanentAvatar = getPermanentAvatarUrl(user.Owner, user.Name, user.Avatar)
+		user.PermanentAvatar, err = getPermanentAvatarUrl(user.Owner, user.Name, user.Avatar, true)
+		if err != nil {
+			return false, err
+		}
 	}
 
 	columns := syncer.getCasdoorColumns()
 	columns = append(columns, "affiliation", "hash", "pre_hash")
-	affected, err := adapter.Engine.ID(core.PK{oldUser.Owner, oldUser.Name}).Cols(columns...).Update(user)
+
+	// Add provider-specific field for API-based syncers to enable login binding
+	// This allows synced users to login via their provider accounts
+	switch syncer.Type {
+	case "WeCom":
+		columns = append(columns, "wecom")
+	case "DingTalk":
+		columns = append(columns, "dingtalk")
+	case "Lark":
+		columns = append(columns, "lark")
+	}
+
+	affected, err := ormer.Engine.Where(key+" = ? and owner = ?", syncer.getUserValue(&oldUser, key), oldUser.Owner).Cols(columns...).Update(user)
 	if err != nil {
 		return false, err
 	}
@@ -146,27 +103,22 @@ func (syncer *Syncer) calculateHash(user *OriginalUser) string {
 	return util.GetMd5Hash(s)
 }
 
-func (syncer *Syncer) initAdapter() {
-	if syncer.Adapter == nil {
-		var dataSourceName string
-		if syncer.DatabaseType == "mssql" {
-			dataSourceName = fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s", syncer.User, syncer.Password, syncer.Host, syncer.Port, syncer.Database)
-		} else {
-			dataSourceName = fmt.Sprintf("%s:%s@tcp(%s:%d)/", syncer.User, syncer.Password, syncer.Host, syncer.Port)
-		}
-
-		if !isCloudIntranet {
-			dataSourceName = strings.ReplaceAll(dataSourceName, "dbi.", "db.")
-		}
-
-		syncer.Adapter = NewAdapter(syncer.DatabaseType, dataSourceName, syncer.Database)
-	}
+func (syncer *Syncer) initAdapter() error {
+	provider := GetSyncerProvider(syncer)
+	return provider.InitAdapter()
 }
 
 func RunSyncUsersJob() {
-	syncers := GetSyncers("admin")
+	syncers, err := GetSyncers("admin")
+	if err != nil {
+		panic(err)
+	}
+
 	for _, syncer := range syncers {
-		addSyncerJob(syncer)
+		err = addSyncerJob(syncer)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	time.Sleep(time.Duration(1<<63 - 1))

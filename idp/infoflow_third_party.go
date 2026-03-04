@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strings"
 	"time"
@@ -47,7 +46,7 @@ func (idp *InfoflowIdProvider) SetHttpClient(client *http.Client) {
 }
 
 func (idp *InfoflowIdProvider) getConfig(clientId string, clientSecret string, redirectUrl string) *oauth2.Config {
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		ClientID:     clientId,
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectUrl,
@@ -63,6 +62,7 @@ type InfoflowToken struct {
 	ExpiresIn   int    `json:"expires_in"`
 }
 
+// GetToken
 // get more detail via: https://qy.baidu.com/doc/index.html#/third_serverapi/authority
 func (idp *InfoflowIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	pTokenParams := &struct {
@@ -134,9 +134,10 @@ type InfoflowUserInfo struct {
 	Email   string `json:"email"`
 }
 
+// GetUserInfo
 // get more detail via: https://qy.baidu.com/doc/index.html#/third_serverapi/contacts?id=%e8%8e%b7%e5%8f%96%e6%88%90%e5%91%98
 func (idp *InfoflowIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error) {
-	//Get userid first
+	// Get userid first
 	accessToken := token.AccessToken
 	code := token.Extra("code").(string)
 	resp, err := idp.Client.Get(fmt.Sprintf("https://api.im.baidu.com/api/user/getuserinfo?access_token=%s&code=%s&agentid=%s", accessToken, code, idp.AgentId))
@@ -144,7 +145,7 @@ func (idp *InfoflowIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, erro
 		return nil, err
 	}
 
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -156,13 +157,13 @@ func (idp *InfoflowIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, erro
 	if userResp.Errcode != 0 {
 		return nil, fmt.Errorf("userIdResp.Errcode = %d, userIdResp.Errmsg = %s", userResp.Errcode, userResp.Errmsg)
 	}
-	//Use userid and accesstoken to get user information
+	// Use userid and accesstoken to get user information
 	resp, err = idp.Client.Get(fmt.Sprintf("https://api.im.baidu.com/api/user/get?access_token=%s&userid=%s", accessToken, userResp.UserId))
 	if err != nil {
 		return nil, err
 	}
 
-	data, err = ioutil.ReadAll(resp.Body)
+	data, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +198,7 @@ func (idp *InfoflowIdProvider) postWithBody(body interface{}, url string) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}

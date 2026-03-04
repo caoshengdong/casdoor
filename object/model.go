@@ -17,8 +17,10 @@ package object
 import (
 	"fmt"
 
+	"github.com/casbin/casbin/v2/config"
+	"github.com/casbin/casbin/v2/model"
 	"github.com/casdoor/casdoor/util"
-	"xorm.io/core"
+	"github.com/xorm-io/core"
 )
 
 type Model struct {
@@ -26,97 +28,201 @@ type Model struct {
 	Name        string `xorm:"varchar(100) notnull pk" json:"name"`
 	CreatedTime string `xorm:"varchar(100)" json:"createdTime"`
 	DisplayName string `xorm:"varchar(100)" json:"displayName"`
+	Description string `xorm:"varchar(100)" json:"description"`
 
-	ModelText 	string `xorm:"mediumtext" json:"modelText"`
-	IsEnabled 	bool   `json:"isEnabled"`
+	ModelText string `xorm:"mediumtext" json:"modelText"`
+
+	model.Model `xorm:"-" json:"-"`
 }
 
-func GetModelCount(owner, field, value string) int {
+func GetModelCount(owner, field, value string) (int64, error) {
 	session := GetSession(owner, -1, -1, field, value, "", "")
-	count, err := session.Count(&Model{})
-	if err != nil {
-		panic(err)
-	}
-
-	return int(count)
+	return session.Count(&Model{})
 }
 
-func GetModels(owner string) []*Model {
+func GetModels(owner string) ([]*Model, error) {
 	models := []*Model{}
-	err := adapter.Engine.Desc("created_time").Find(&models, &Model{Owner: owner})
+	err := ormer.Engine.Desc("created_time").Find(&models, &Model{Owner: owner})
 	if err != nil {
-		panic(err)
+		return models, err
 	}
 
-	return models
+	return models, nil
 }
 
-func GetPaginationModels(owner string, offset, limit int, field, value, sortField, sortOrder string) []*Model {
+func GetPaginationModels(owner string, offset, limit int, field, value, sortField, sortOrder string) ([]*Model, error) {
 	models := []*Model{}
 	session := GetSession(owner, offset, limit, field, value, sortField, sortOrder)
 	err := session.Find(&models)
 	if err != nil {
-		panic(err)
+		return models, err
 	}
 
-	return models
+	return models, nil
 }
 
-func getModel(owner string, name string) *Model {
+func getModel(owner string, name string) (*Model, error) {
 	if owner == "" || name == "" {
-		return nil
+		return nil, nil
 	}
 
-	model := Model{Owner: owner, Name: name}
-	existed, err := adapter.Engine.Get(&model)
+	m := Model{Owner: owner, Name: name}
+	existed, err := ormer.Engine.Get(&m)
 	if err != nil {
-		panic(err)
+		return &m, err
 	}
 
 	if existed {
-		return &model
+		return &m, nil
 	} else {
-		return nil
+		return nil, nil
 	}
 }
 
-func GetModel(id string) *Model {
-	owner, name := util.GetOwnerAndNameFromId(id)
+func GetModel(id string) (*Model, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return nil, err
+	}
 	return getModel(owner, name)
 }
 
-func UpdateModel(id string, model *Model) bool {
-	owner, name := util.GetOwnerAndNameFromId(id)
-	if getModel(owner, name) == nil {
+func getModelEx(id string) (*Model, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return nil, err
+	}
+
+	model, err := getModel(owner, name)
+	if err != nil {
+		return nil, err
+	}
+	if model != nil {
+		return model, nil
+	}
+
+	return getModel("built-in", name)
+}
+
+func UpdateModelWithCheck(id string, modelObj *Model) error {
+	// check model grammar
+	_, err := model.NewModelFromString(modelObj.ModelText)
+	if err != nil {
+		return err
+	}
+	_, err = UpdateModel(id, modelObj)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func UpdateModel(id string, modelObj *Model) (bool, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return false, err
+	}
+	if m, err := getModel(owner, name); err != nil {
+		return false, err
+	} else if m == nil {
+		return false, nil
+	}
+
+	if name != modelObj.Name {
+		err := modelChangeTrigger(name, modelObj.Name)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	affected, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(modelObj)
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, err
+}
+
+func AddModel(model *Model) (bool, error) {
+	affected, err := ormer.Engine.Insert(model)
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+func DeleteModel(model *Model) (bool, error) {
+	affected, err := ormer.Engine.ID(core.PK{model.Owner, model.Name}).Delete(&Model{})
+	if err != nil {
+		return false, err
+	}
+
+	return affected != 0, nil
+}
+
+func (m *Model) GetId() string {
+	return fmt.Sprintf("%s/%s", m.Owner, m.Name)
+}
+
+func modelChangeTrigger(oldName string, newName string) error {
+	session := ormer.Engine.NewSession()
+	defer session.Close()
+
+	err := session.Begin()
+	if err != nil {
+		return err
+	}
+
+	permission := new(Permission)
+	permission.Model = newName
+	_, err = session.Where("model=?", oldName).Update(permission)
+	if err != nil {
+		session.Rollback()
+		return err
+	}
+
+	enforcer := new(Enforcer)
+	enforcer.Model = newName
+	_, err = session.Where("model=?", oldName).Update(enforcer)
+	if err != nil {
+		session.Rollback()
+		return err
+	}
+
+	return session.Commit()
+}
+
+func HasRoleDefinition(m model.Model) bool {
+	if m == nil {
 		return false
 	}
-
-	affected, err := adapter.Engine.ID(core.PK{owner, name}).AllCols().Update(model)
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
+	return m["g"] != nil
 }
 
-func AddModel(model *Model) bool {
-	affected, err := adapter.Engine.Insert(model)
-	if err != nil {
-		panic(err)
+func (m *Model) initModel() error {
+	if m.Model == nil {
+		casbinModel, err := model.NewModelFromString(m.ModelText)
+		if err != nil {
+			return err
+		}
+		m.Model = casbinModel
 	}
 
-	return affected != 0
+	return nil
 }
 
-func DeleteModel(model *Model) bool {
-	affected, err := adapter.Engine.ID(core.PK{model.Owner, model.Name}).Delete(&Model{})
+func getModelCfg(m *Model) (map[string]string, error) {
+	cfg, err := config.NewConfigFromText(m.ModelText)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	return affected != 0
-}
-
-func (model *Model) GetId() string {
-	return fmt.Sprintf("%s/%s", model.Owner, model.Name)
+	modelCfg := make(map[string]string)
+	modelCfg["p"] = cfg.String("policy_definition::p")
+	if cfg.String("role_definition::g") != "" {
+		modelCfg["g"] = cfg.String("role_definition::g")
+	}
+	return modelCfg, nil
 }

@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -49,12 +48,12 @@ func (idp *GithubIdProvider) SetHttpClient(client *http.Client) {
 }
 
 func (idp *GithubIdProvider) getConfig() *oauth2.Config {
-	var endpoint = oauth2.Endpoint{
+	endpoint := oauth2.Endpoint{
 		AuthURL:  "https://github.com/login/oauth/authorize",
 		TokenURL: "https://github.com/login/oauth/access_token",
 	}
 
-	var config = &oauth2.Config{
+	config := &oauth2.Config{
 		Scopes:   []string{"user:email", "read:user"},
 		Endpoint: endpoint,
 	}
@@ -93,7 +92,6 @@ func (idp *GithubIdProvider) GetToken(code string) (*oauth2.Token, error) {
 	}
 
 	return token, nil
-
 }
 
 //{
@@ -190,10 +188,23 @@ type GitHubUserInfo struct {
 	} `json:"plan"`
 }
 
+type GitHubUserEmailInfo struct {
+	Email      string `json:"email"`
+	Primary    bool   `json:"primary"`
+	Verified   bool   `json:"verified"`
+	Visibility string `json:"visibility"`
+}
+
+type GitHubErrorInfo struct {
+	Message          string `json:"message"`
+	DocumentationUrl string `json:"documentation_url"`
+	Status           string `json:"status"`
+}
+
 func (idp *GithubIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error) {
 	req, err := http.NewRequest("GET", "https://api.github.com/user", nil)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	req.Header.Add("Authorization", "token "+token.AccessToken)
 	resp, err := idp.Client.Do(req)
@@ -203,7 +214,7 @@ func (idp *GithubIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error)
 
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -212,6 +223,42 @@ func (idp *GithubIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error)
 	err = json.Unmarshal(body, &githubUserInfo)
 	if err != nil {
 		return nil, err
+	}
+
+	if githubUserInfo.Email == "" {
+		reqEmail, err := http.NewRequest("GET", "https://api.github.com/user/emails", nil)
+		if err != nil {
+			return nil, err
+		}
+		reqEmail.Header.Add("Authorization", "token "+token.AccessToken)
+		respEmail, err := idp.Client.Do(reqEmail)
+		if err != nil {
+			return nil, err
+		}
+
+		defer respEmail.Body.Close()
+		emailBody, err := io.ReadAll(respEmail.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		if respEmail.StatusCode != 200 {
+			var errMessage GitHubErrorInfo
+			err = json.Unmarshal(emailBody, &errMessage)
+			if err != nil {
+				return nil, err
+			}
+
+			fmt.Printf("GithubIdProvider:GetUserInfo() error, status code = %d, error message = %v\n", respEmail.StatusCode, errMessage)
+		} else {
+			var userEmails []GitHubUserEmailInfo
+			err = json.Unmarshal(emailBody, &userEmails)
+			if err != nil {
+				return nil, err
+			}
+
+			githubUserInfo.Email = idp.getEmailFromEmailsResult(userEmails)
+		}
 	}
 
 	userInfo := UserInfo{
@@ -237,7 +284,7 @@ func (idp *GithubIdProvider) postWithBody(body interface{}, url string) ([]byte,
 	if err != nil {
 		return nil, err
 	}
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -249,4 +296,28 @@ func (idp *GithubIdProvider) postWithBody(body interface{}, url string) ([]byte,
 	}(resp.Body)
 
 	return data, nil
+}
+
+func (idp *GithubIdProvider) getEmailFromEmailsResult(emailInfo []GitHubUserEmailInfo) string {
+	primaryEmail := ""
+	verifiedEmail := ""
+
+	for _, addr := range emailInfo {
+		if !addr.Verified || strings.Contains(addr.Email, "users.noreply.github.com") {
+			continue
+		}
+
+		if addr.Primary {
+			primaryEmail = addr.Email
+			break
+		} else if verifiedEmail == "" {
+			verifiedEmail = addr.Email
+		}
+	}
+
+	if primaryEmail != "" {
+		return primaryEmail
+	}
+
+	return verifiedEmail
 }

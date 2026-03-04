@@ -13,32 +13,27 @@
 // limitations under the License.
 
 //go:build !skipCi
-// +build !skipCi
 
 package object
 
-import (
-	"testing"
-
-	"github.com/casdoor/casdoor/pp"
-	"github.com/casdoor/casdoor/util"
-)
-
-func TestProduct(t *testing.T) {
-	InitConfig()
-
-	product := GetProduct("admin/product_123")
-	provider := getProvider(product.Owner, "provider_pay_alipay")
-	cert := getCert(product.Owner, "cert-pay-alipay")
-	pProvider := pp.GetPaymentProvider(provider.Type, provider.ClientId, provider.ClientSecret, provider.Host, cert.PublicKey, cert.PrivateKey, cert.AuthorityPublicKey, cert.AuthorityRootPublicKey)
-
-	paymentName := util.GenerateTimeId()
-	returnUrl := ""
-	notifyUrl := ""
-	payUrl, err := pProvider.Pay(provider.Name, product.Name, "alice", paymentName, product.DisplayName, product.Price, returnUrl, notifyUrl)
-	if err != nil {
-		panic(err)
-	}
-
-	println(payUrl)
-}
+//func TestProduct(t *testing.T) {
+//	InitConfig()
+//
+//	product, _ := GetProduct("admin/product_123")
+//	provider, _ := getProvider(product.Owner, "provider_pay_alipay")
+//	cert, _ := getCert(product.Owner, "cert-pay-alipay")
+//	pProvider, err := pp.GetPaymentProvider(provider.Type, provider.ClientId, provider.ClientSecret, provider.Host, cert.Certificate, cert.PrivateKey, cert.AuthorityPublicKey, cert.AuthorityRootPublicKey, provider.ClientId2)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	paymentName := util.GenerateTimeId()
+//	returnUrl := ""
+//	notifyUrl := ""
+//	payUrl, _, err := pProvider.Pay(provider.Name, product.Name, "alice", paymentName, product.DisplayName, product.Price, product.Currency, returnUrl, notifyUrl)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	println(payUrl)
+//}

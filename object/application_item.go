@@ -14,8 +14,12 @@
 
 package object
 
-func (application *Application) GetProviderByCategory(category string) *Provider {
-	providers := GetProviders(application.Owner)
+func (application *Application) GetProviderByCategory(category string) (*Provider, error) {
+	providers, err := GetProviders(application.Organization)
+	if err != nil {
+		return nil, err
+	}
+
 	m := map[string]*Provider{}
 	for _, provider := range providers {
 		if provider.Category != category {
@@ -27,22 +31,67 @@ func (application *Application) GetProviderByCategory(category string) *Provider
 
 	for _, providerItem := range application.Providers {
 		if provider, ok := m[providerItem.Name]; ok {
-			return provider
+			return provider, nil
 		}
 	}
 
-	return nil
+	return nil, nil
 }
 
-func (application *Application) GetEmailProvider() *Provider {
-	return application.GetProviderByCategory("Email")
+func isProviderItemCountryCodeMatched(providerItem *ProviderItem, countryCode string) bool {
+	if len(providerItem.CountryCodes) == 0 {
+		return true
+	}
+
+	for _, countryCode2 := range providerItem.CountryCodes {
+		if countryCode2 == "" || countryCode2 == "All" || countryCode2 == "all" || countryCode2 == countryCode {
+			return true
+		}
+	}
+	return false
 }
 
-func (application *Application) GetSmsProvider() *Provider {
-	return application.GetProviderByCategory("SMS")
+func (application *Application) GetProviderByCategoryAndRule(category string, method string, countryCode string) (*Provider, error) {
+	providers, err := GetProviders(application.Organization)
+	if err != nil {
+		return nil, err
+	}
+
+	m := map[string]*Provider{}
+	for _, provider := range providers {
+		if provider.Category != category {
+			continue
+		}
+
+		m[provider.Name] = provider
+	}
+
+	for _, providerItem := range application.Providers {
+		if providerItem.Provider != nil && providerItem.Provider.Category == "SMS" {
+			if !isProviderItemCountryCodeMatched(providerItem, countryCode) {
+				continue
+			}
+		}
+
+		if providerItem.Rule == method || providerItem.Rule == "" || providerItem.Rule == "All" || providerItem.Rule == "all" || providerItem.Rule == "None" {
+			if provider, ok := m[providerItem.Name]; ok {
+				return provider, nil
+			}
+		}
+	}
+
+	return nil, nil
 }
 
-func (application *Application) GetStorageProvider() *Provider {
+func (application *Application) GetEmailProvider(method string) (*Provider, error) {
+	return application.GetProviderByCategoryAndRule("Email", method, "All")
+}
+
+func (application *Application) GetSmsProvider(method string, countryCode string) (*Provider, error) {
+	return application.GetProviderByCategoryAndRule("SMS", method, countryCode)
+}
+
+func (application *Application) GetStorageProvider() (*Provider, error) {
 	return application.GetProviderByCategory("Storage")
 }
 
@@ -73,6 +122,10 @@ func (application *Application) IsSignupItemRequired(itemName string) bool {
 	return signupItem.Required
 }
 
+func (si *SignupItem) isSignupItemPrompted() bool {
+	return si.Visible && si.Prompted
+}
+
 func (application *Application) GetSignupItemRule(itemName string) string {
 	signupItem := application.getSignupItem(itemName)
 	if signupItem == nil {
@@ -92,6 +145,16 @@ func (application *Application) getAllPromptedProviderItems() []*ProviderItem {
 	return res
 }
 
+func (application *Application) getAllPromptedSignupItems() []*SignupItem {
+	res := []*SignupItem{}
+	for _, signupItem := range application.SignupItems {
+		if signupItem.isSignupItemPrompted() {
+			res = append(res, signupItem)
+		}
+	}
+	return res
+}
+
 func (application *Application) isAffiliationPrompted() bool {
 	signupItem := application.getSignupItem("Affiliation")
 	if signupItem == nil {
@@ -104,6 +167,11 @@ func (application *Application) isAffiliationPrompted() bool {
 func (application *Application) HasPromptPage() bool {
 	providerItems := application.getAllPromptedProviderItems()
 	if len(providerItems) != 0 {
+		return true
+	}
+
+	signupItems := application.getAllPromptedSignupItems()
+	if len(signupItems) != 0 {
 		return true
 	}
 

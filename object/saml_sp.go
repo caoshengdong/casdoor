@@ -18,40 +18,81 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
 
-	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/idp"
+	"github.com/mitchellh/mapstructure"
+
+	"github.com/casdoor/casdoor/i18n"
 	saml2 "github.com/russellhaering/gosaml2"
 	dsig "github.com/russellhaering/goxmldsig"
 )
 
-func ParseSamlResponse(samlResponse string, providerType string) (string, error) {
+func ParseSamlResponse(samlResponse string, provider *Provider, host string) (*idp.UserInfo, error) {
 	samlResponse, _ = url.QueryUnescape(samlResponse)
-	sp, err := buildSp(&Provider{Type: providerType}, samlResponse)
+	sp, err := buildSp(provider, samlResponse, host)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
+
 	assertionInfo, err := sp.RetrieveAssertionInfo(samlResponse)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return assertionInfo.NameID, nil
+
+	userInfoMap := make(map[string]string)
+	for spAttr, idpAttr := range provider.UserMapping {
+		for _, attr := range assertionInfo.Values {
+			if attr.Name == idpAttr {
+				userInfoMap[spAttr] = attr.Values[0].Value
+			}
+		}
+	}
+	userInfoMap["id"] = assertionInfo.NameID
+
+	customUserInfo := &idp.CustomUserInfo{}
+	err = mapstructure.Decode(userInfoMap, customUserInfo)
+	if err != nil {
+		return nil, err
+	}
+	userInfo := &idp.UserInfo{
+		Id:          customUserInfo.Id,
+		Username:    customUserInfo.Username,
+		DisplayName: customUserInfo.DisplayName,
+		Email:       customUserInfo.Email,
+		AvatarUrl:   customUserInfo.AvatarUrl,
+	}
+
+	// Fallback: if Username is empty, use Email or NameID
+	if userInfo.Username == "" {
+		if userInfo.Email != "" {
+			userInfo.Username = userInfo.Email
+		} else if userInfo.Id != "" {
+			userInfo.Username = userInfo.Id
+		}
+	}
+
+	return userInfo, err
 }
 
-func GenerateSamlLoginUrl(id, relayState string) (string, string, error) {
-	provider := GetProvider(id)
-	if provider.Category != "SAML" {
-		return "", "", fmt.Errorf("Provider %s's category is not SAML", provider.Name)
-	}
-	sp, err := buildSp(provider, "")
+func GenerateSamlRequest(id, relayState, host, lang string) (auth string, method string, err error) {
+	provider, err := GetProvider(id)
 	if err != nil {
 		return "", "", err
 	}
-	auth := ""
-	method := ""
+	if provider.Category != "SAML" {
+		return "", "", fmt.Errorf(i18n.Translate(lang, "saml_sp:provider %s's category is not SAML"), provider.Name)
+	}
+
+	sp, err := buildSp(provider, "", host)
+	if err != nil {
+		return "", "", err
+	}
+
 	if provider.EnableSignAuthnRequest {
 		post, err := sp.BuildAuthBodyPost(relayState)
 		if err != nil {
@@ -69,67 +110,106 @@ func GenerateSamlLoginUrl(id, relayState string) (string, string, error) {
 	return auth, method, nil
 }
 
-func buildSp(provider *Provider, samlResponse string) (*saml2.SAMLServiceProvider, error) {
-	certStore := dsig.MemoryX509CertificateStore{
-		Roots: []*x509.Certificate{},
-	}
-	origin := conf.GetConfigString("origin")
-	certEncodedData := ""
-	if samlResponse != "" {
-		certEncodedData = parseSamlResponse(samlResponse, provider.Type)
-	} else if provider.IdP != "" {
-		certEncodedData = provider.IdP
-	}
-	certData, err := base64.StdEncoding.DecodeString(certEncodedData)
+func buildSp(provider *Provider, samlResponse string, host string) (*saml2.SAMLServiceProvider, error) {
+	_, origin := getOriginFromHost(host)
+
+	certStore, err := buildSpCertificateStore(provider, samlResponse)
 	if err != nil {
 		return nil, err
 	}
-	idpCert, err := x509.ParseCertificate(certData)
-	if err != nil {
-		return nil, err
-	}
-	certStore.Roots = append(certStore.Roots, idpCert)
+
 	sp := &saml2.SAMLServiceProvider{
 		ServiceProviderIssuer:       fmt.Sprintf("%s/api/acs", origin),
 		AssertionConsumerServiceURL: fmt.Sprintf("%s/api/acs", origin),
-		IDPCertificateStore:         &certStore,
 		SignAuthnRequests:           false,
+		IDPCertificateStore:         &certStore,
 		SPKeyStore:                  dsig.RandomKeyStoreForTest(),
 	}
+
 	if provider.Endpoint != "" {
 		sp.IdentityProviderSSOURL = provider.Endpoint
 		sp.IdentityProviderIssuer = provider.IssuerUrl
 	}
 	if provider.EnableSignAuthnRequest {
 		sp.SignAuthnRequests = true
-		sp.SPKeyStore = buildSpKeyStore()
+		sp.SPKeyStore, err = buildSpKeyStore()
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	return sp, nil
 }
 
-func parseSamlResponse(samlResponse string, providerType string) string {
-	de, err := base64.StdEncoding.DecodeString(samlResponse)
-	if err != nil {
-		panic(err)
-	}
-	deStr := strings.Replace(string(de), "\n", "", -1)
-	tagMap := map[string]string{
-		"Aliyun IDaaS": "ds",
-		"Keycloak":     "dsig",
-	}
-	tag := tagMap[providerType]
-	expression := fmt.Sprintf("<%s:X509Certificate>([\\s\\S]*?)</%s:X509Certificate>", tag, tag)
-	res := regexp.MustCompile(expression).FindStringSubmatch(deStr)
-	return res[1]
-}
-
-func buildSpKeyStore() dsig.X509KeyStore {
+func buildSpKeyStore() (dsig.X509KeyStore, error) {
 	keyPair, err := tls.LoadX509KeyPair("object/token_jwt_key.pem", "object/token_jwt_key.key")
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	return &dsig.TLSCertKeyStore{
 		PrivateKey:  keyPair.PrivateKey,
 		Certificate: keyPair.Certificate,
+	}, nil
+}
+
+func buildSpCertificateStore(provider *Provider, samlResponse string) (certStore dsig.MemoryX509CertificateStore, err error) {
+	certEncodedData := ""
+	if samlResponse != "" {
+		certEncodedData, err = getCertificateFromSamlResponse(samlResponse, provider.Type)
+		if err != nil {
+			return
+		}
+	} else if provider.IdP != "" {
+		certEncodedData = provider.IdP
 	}
+
+	var certData []byte
+	block, _ := pem.Decode([]byte(certEncodedData))
+	if block != nil {
+		// this was a PEM file
+		// block.Bytes are DER encoded so the following code block should happily accept it
+		certData = block.Bytes
+	} else {
+		certData, err = base64.StdEncoding.DecodeString(certEncodedData)
+		if err != nil {
+			return dsig.MemoryX509CertificateStore{}, err
+		}
+	}
+
+	idpCert, err := x509.ParseCertificate(certData)
+	if err != nil {
+		return dsig.MemoryX509CertificateStore{}, err
+	}
+
+	certStore = dsig.MemoryX509CertificateStore{
+		Roots: []*x509.Certificate{idpCert},
+	}
+	return certStore, nil
+}
+
+func getCertificateFromSamlResponse(samlResponse string, providerType string) (string, error) {
+	de, err := base64.StdEncoding.DecodeString(samlResponse)
+	if err != nil {
+		return "", err
+	}
+	var (
+		expression string
+		deStr      = strings.Replace(string(de), "\n", "", -1)
+		tagMap     = map[string]string{
+			"Aliyun IDaaS": "ds",
+			"Keycloak":     "dsig",
+		}
+	)
+	tag := tagMap[providerType]
+	if tag == "" {
+		// <ds:X509Certificate>...</ds:X509Certificate>
+		// <dsig:X509Certificate>...</dsig:X509Certificate>
+		// <X509Certificate>...</X509Certificate>
+		// ...
+		expression = "<[^>]*:?X509Certificate>([\\s\\S]*?)<[^>]*:?X509Certificate>"
+	} else {
+		expression = fmt.Sprintf("<%s:X509Certificate>([\\s\\S]*?)</%s:X509Certificate>", tag, tag)
+	}
+	res := regexp.MustCompile(expression).FindStringSubmatch(deStr)
+	return res[1], nil
 }

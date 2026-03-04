@@ -17,14 +17,17 @@ package object
 import (
 	"fmt"
 
+	"github.com/casdoor/casdoor/i18n"
 	"github.com/casdoor/casdoor/util"
-	"xorm.io/core"
+	"github.com/xorm-io/core"
+	"golang.org/x/crypto/ssh"
 )
 
 type TableColumn struct {
 	Name        string   `json:"name"`
 	Type        string   `json:"type"`
 	CasdoorName string   `json:"casdoorName"`
+	IsKey       bool     `json:"isKey"`
 	IsHashed    bool     `json:"isHashed"`
 	Values      []string `json:"values"`
 }
@@ -36,159 +39,209 @@ type Syncer struct {
 
 	Organization string `xorm:"varchar(100)" json:"organization"`
 	Type         string `xorm:"varchar(100)" json:"type"`
+	DatabaseType string `xorm:"varchar(100)" json:"databaseType"`
+	SslMode      string `xorm:"varchar(100)" json:"sslMode"`
+	SshType      string `xorm:"varchar(100)" json:"sshType"`
 
 	Host             string         `xorm:"varchar(100)" json:"host"`
 	Port             int            `json:"port"`
 	User             string         `xorm:"varchar(100)" json:"user"`
-	Password         string         `xorm:"varchar(100)" json:"password"`
-	DatabaseType     string         `xorm:"varchar(100)" json:"databaseType"`
+	Password         string         `xorm:"varchar(150)" json:"password"`
+	SshHost          string         `xorm:"varchar(100)" json:"sshHost"`
+	SshPort          int            `json:"sshPort"`
+	SshUser          string         `xorm:"varchar(100)" json:"sshUser"`
+	SshPassword      string         `xorm:"varchar(150)" json:"sshPassword"`
+	Cert             string         `xorm:"varchar(100)" json:"cert"`
 	Database         string         `xorm:"varchar(100)" json:"database"`
 	Table            string         `xorm:"varchar(100)" json:"table"`
-	TablePrimaryKey  string         `xorm:"varchar(100)" json:"tablePrimaryKey"`
 	TableColumns     []*TableColumn `xorm:"mediumtext" json:"tableColumns"`
 	AffiliationTable string         `xorm:"varchar(100)" json:"affiliationTable"`
 	AvatarBaseUrl    string         `xorm:"varchar(100)" json:"avatarBaseUrl"`
 	ErrorText        string         `xorm:"mediumtext" json:"errorText"`
 	SyncInterval     int            `json:"syncInterval"`
+	IsReadOnly       bool           `json:"isReadOnly"`
 	IsEnabled        bool           `json:"isEnabled"`
 
-	Adapter *Adapter `xorm:"-" json:"-"`
+	Ormer     *Ormer      `xorm:"-" json:"-"`
+	SshClient *ssh.Client `xorm:"-" json:"-"`
 }
 
-func GetSyncerCount(owner, field, value string) int {
+func GetSyncerCount(owner, organization, field, value string) (int64, error) {
 	session := GetSession(owner, -1, -1, field, value, "", "")
-	count, err := session.Count(&Syncer{})
-	if err != nil {
-		panic(err)
-	}
-
-	return int(count)
+	return session.Count(&Syncer{Organization: organization})
 }
 
-func GetSyncers(owner string) []*Syncer {
+func GetSyncers(owner string) ([]*Syncer, error) {
 	syncers := []*Syncer{}
-	err := adapter.Engine.Desc("created_time").Find(&syncers, &Syncer{Owner: owner})
+	err := ormer.Engine.Desc("created_time").Find(&syncers, &Syncer{Owner: owner})
 	if err != nil {
-		panic(err)
+		return syncers, err
 	}
 
-	return syncers
+	return syncers, nil
 }
 
-func GetPaginationSyncers(owner string, offset, limit int, field, value, sortField, sortOrder string) []*Syncer {
+func GetOrganizationSyncers(owner, organization string) ([]*Syncer, error) {
+	syncers := []*Syncer{}
+	err := ormer.Engine.Desc("created_time").Find(&syncers, &Syncer{Owner: owner, Organization: organization})
+	if err != nil {
+		return syncers, err
+	}
+
+	return syncers, nil
+}
+
+func GetPaginationSyncers(owner, organization string, offset, limit int, field, value, sortField, sortOrder string) ([]*Syncer, error) {
 	syncers := []*Syncer{}
 	session := GetSession(owner, offset, limit, field, value, sortField, sortOrder)
-	err := session.Find(&syncers)
+	err := session.Find(&syncers, &Syncer{Organization: organization})
 	if err != nil {
-		panic(err)
+		return syncers, err
 	}
 
-	return syncers
+	return syncers, nil
 }
 
-func getSyncer(owner string, name string) *Syncer {
+func getSyncer(owner string, name string) (*Syncer, error) {
 	if owner == "" || name == "" {
-		return nil
+		return nil, nil
 	}
 
 	syncer := Syncer{Owner: owner, Name: name}
-	existed, err := adapter.Engine.Get(&syncer)
+	existed, err := ormer.Engine.Get(&syncer)
 	if err != nil {
-		panic(err)
+		return &syncer, err
 	}
 
 	if existed {
-		return &syncer
+		return &syncer, nil
 	} else {
-		return nil
+		return nil, nil
 	}
 }
 
-func GetSyncer(id string) *Syncer {
-	owner, name := util.GetOwnerAndNameFromId(id)
+func GetSyncer(id string) (*Syncer, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return nil, err
+	}
 	return getSyncer(owner, name)
 }
 
-func GetMaskedSyncer(syncer *Syncer) *Syncer {
+func GetMaskedSyncer(syncer *Syncer, errs ...error) (*Syncer, error) {
+	if len(errs) > 0 && errs[0] != nil {
+		return nil, errs[0]
+	}
+
 	if syncer == nil {
-		return nil
+		return nil, nil
 	}
 
 	if syncer.Password != "" {
 		syncer.Password = "***"
 	}
-	return syncer
+	return syncer, nil
 }
 
-func GetMaskedSyncers(syncers []*Syncer) []*Syncer {
+func GetMaskedSyncers(syncers []*Syncer, errs ...error) ([]*Syncer, error) {
+	if len(errs) > 0 && errs[0] != nil {
+		return nil, errs[0]
+	}
+
+	var err error
 	for _, syncer := range syncers {
-		syncer = GetMaskedSyncer(syncer)
+		syncer, err = GetMaskedSyncer(syncer)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return syncers
+
+	return syncers, nil
 }
 
-func UpdateSyncer(id string, syncer *Syncer) bool {
-	owner, name := util.GetOwnerAndNameFromId(id)
-	if getSyncer(owner, name) == nil {
-		return false
+func UpdateSyncer(id string, syncer *Syncer, isGlobalAdmin bool, lang string) (bool, error) {
+	owner, name, err := util.GetOwnerAndNameFromIdWithError(id)
+	if err != nil {
+		return false, err
+	}
+	s, err := getSyncer(owner, name)
+	if err != nil {
+		return false, err
+	} else if s == nil {
+		return false, nil
+	} else if !isGlobalAdmin && s.Organization != syncer.Organization {
+		return false, fmt.Errorf(i18n.Translate(lang, "auth:Unauthorized operation"))
 	}
 
-	session := adapter.Engine.ID(core.PK{owner, name}).AllCols()
+	// Close old syncer connections before updating
+	_ = s.Close()
+
+	session := ormer.Engine.ID(core.PK{owner, name}).AllCols()
 	if syncer.Password == "***" {
-		session.Omit("password")
+		syncer.Password = s.Password
 	}
 	affected, err := session.Update(syncer)
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
 	if affected == 1 {
-		addSyncerJob(syncer)
+		err = addSyncerJob(syncer)
+		if err != nil {
+			return false, err
+		}
 	}
 
-	return affected != 0
+	return affected != 0, nil
 }
 
-func updateSyncerErrorText(syncer *Syncer, line string) bool {
-	s := getSyncer(syncer.Owner, syncer.Name)
+func updateSyncerErrorText(syncer *Syncer, line string) (bool, error) {
+	s, err := getSyncer(syncer.Owner, syncer.Name)
+	if err != nil {
+		return false, err
+	}
+
 	if s == nil {
-		return false
+		return false, nil
 	}
 
 	s.ErrorText = s.ErrorText + line
 
-	affected, err := adapter.Engine.ID(core.PK{s.Owner, s.Name}).Cols("error_text").Update(s)
+	affected, err := ormer.Engine.ID(core.PK{s.Owner, s.Name}).Cols("error_text").Update(s)
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
-	return affected != 0
+	return affected != 0, nil
 }
 
-func AddSyncer(syncer *Syncer) bool {
-	affected, err := adapter.Engine.Insert(syncer)
+func AddSyncer(syncer *Syncer) (bool, error) {
+	affected, err := ormer.Engine.Insert(syncer)
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
 	if affected == 1 {
-		addSyncerJob(syncer)
+		err = addSyncerJob(syncer)
+		if err != nil {
+			return false, err
+		}
 	}
 
-	return affected != 0
+	return affected != 0, nil
 }
 
-func DeleteSyncer(syncer *Syncer) bool {
-	affected, err := adapter.Engine.ID(core.PK{syncer.Owner, syncer.Name}).Delete(&Syncer{})
+func DeleteSyncer(syncer *Syncer) (bool, error) {
+	affected, err := ormer.Engine.ID(core.PK{syncer.Owner, syncer.Name}).Where("organization = ?", syncer.Organization).Delete(&Syncer{})
 	if err != nil {
-		panic(err)
+		return false, err
 	}
 
 	if affected == 1 {
 		deleteSyncerJob(syncer)
 	}
 
-	return affected != 0
+	return affected != 0, nil
 }
 
 func (syncer *Syncer) GetId() string {
@@ -211,7 +264,82 @@ func (syncer *Syncer) getTable() string {
 	}
 }
 
-func RunSyncer(syncer *Syncer) {
-	syncer.initAdapter()
-	syncer.syncUsers()
+func (syncer *Syncer) getKeyColumn() *TableColumn {
+	var column *TableColumn
+	for _, tableColumn := range syncer.TableColumns {
+		if tableColumn.IsKey {
+			column = tableColumn
+		}
+	}
+
+	if column == nil {
+		for _, tableColumn := range syncer.TableColumns {
+			if tableColumn.Name == "id" {
+				column = tableColumn
+			}
+		}
+	}
+
+	if column == nil {
+		column = syncer.TableColumns[0]
+	}
+
+	return column
+}
+
+func (syncer *Syncer) getLocalPrimaryKey() string {
+	column := syncer.getKeyColumn()
+	return util.CamelToSnakeCase(column.CasdoorName)
+}
+
+func (syncer *Syncer) getTargetTablePrimaryKey() string {
+	column := syncer.getKeyColumn()
+	return column.Name
+}
+
+func RunSyncer(syncer *Syncer) error {
+	err := syncer.initAdapter()
+	if err != nil {
+		return err
+	}
+
+	return syncer.syncUsers()
+}
+
+func TestSyncer(syncer Syncer) error {
+	oldSyncer, err := getSyncer(syncer.Owner, syncer.Name)
+	if err != nil {
+		return err
+	}
+
+	if syncer.Password == "***" {
+		syncer.Password = oldSyncer.Password
+	}
+
+	provider := GetSyncerProvider(&syncer)
+	return provider.TestConnection()
+}
+
+func (syncer *Syncer) Close() error {
+	var err error
+	if syncer.Ormer != nil {
+		if syncer.Ormer.Engine != nil {
+			err = syncer.Ormer.Engine.Close()
+			syncer.Ormer.Engine = nil
+		}
+		if syncer.Ormer.Db != nil {
+			if dbErr := syncer.Ormer.Db.Close(); dbErr != nil && err == nil {
+				err = dbErr
+			}
+			syncer.Ormer.Db = nil
+		}
+		syncer.Ormer = nil
+	}
+	if syncer.SshClient != nil {
+		if sshErr := syncer.SshClient.Close(); sshErr != nil && err == nil {
+			err = sshErr
+		}
+		syncer.SshClient = nil
+	}
+	return err
 }

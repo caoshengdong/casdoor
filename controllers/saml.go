@@ -16,19 +16,55 @@ package controllers
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
 
 	"github.com/casdoor/casdoor/object"
 )
 
 func (c *ApiController) GetSamlMeta() {
 	host := c.Ctx.Request.Host
-	paramApp := c.Input().Get("application")
-	application := object.GetApplication(paramApp)
-	if application == nil {
-		c.ResponseError(fmt.Sprintf("err: application %s not found", paramApp))
+	paramApp := c.Ctx.Input.Query("application")
+	application, err := object.GetApplication(paramApp)
+	if err != nil {
+		c.ResponseError(err.Error())
 		return
 	}
-	metadata, _ := object.GetSamlMeta(application, host)
+
+	if application == nil {
+		c.ResponseError(fmt.Sprintf(c.T("saml:Application %s not found"), paramApp))
+		return
+	}
+
+	enablePostBinding, err := c.GetBool("enablePostBinding", false)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
+	metadata, err := object.GetSamlMeta(application, host, enablePostBinding)
+	if err != nil {
+		c.ResponseError(err.Error())
+		return
+	}
+
 	c.Data["xml"] = metadata
 	c.ServeXML()
+}
+
+func (c *ApiController) HandleSamlRedirect() {
+	host := c.Ctx.Request.Host
+
+	owner := c.Ctx.Input.Param(":owner")
+	application := c.Ctx.Input.Param(":application")
+
+	relayState := c.Ctx.Input.Query("RelayState")
+	samlRequest := c.Ctx.Input.Query("SAMLRequest")
+	username := c.Ctx.Input.Query("username")
+	loginHint := c.Ctx.Input.Query("login_hint")
+
+	relayState = url.QueryEscape(relayState)
+	targetURL := object.GetSamlRedirectAddress(owner, application, relayState, samlRequest, host, username, loginHint)
+
+	c.Redirect(targetURL, http.StatusSeeOther)
 }

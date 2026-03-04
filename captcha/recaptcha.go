@@ -17,7 +17,7 @@ package captcha
 import (
 	"encoding/json"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,15 +25,14 @@ import (
 
 const ReCaptchaVerifyUrl = "https://recaptcha.net/recaptcha/api/siteverify"
 
-type ReCaptchaProvider struct {
-}
+type ReCaptchaProvider struct{}
 
 func NewReCaptchaProvider() *ReCaptchaProvider {
 	captcha := &ReCaptchaProvider{}
 	return captcha
 }
 
-func (captcha *ReCaptchaProvider) VerifyCaptcha(token, clientSecret string) (bool, error) {
+func (captcha *ReCaptchaProvider) VerifyCaptcha(token, clientId, clientSecret, clientId2 string) (bool, error) {
 	reqData := url.Values{
 		"secret":   {clientSecret},
 		"response": {token},
@@ -44,7 +43,7 @@ func (captcha *ReCaptchaProvider) VerifyCaptcha(token, clientSecret string) (boo
 	}
 
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return false, err
 	}
